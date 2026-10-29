@@ -2,7 +2,7 @@ import type { AppData } from './types';
 
 const STORAGE_KEY = 'hbk_spor_rebuild_v1';
 
-const EMPTY_DATA: AppData = { profile: null, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [], weeklyPlan: [], customGoals: [] };
+const EMPTY_DATA: AppData = { profile: null, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [], weeklyPlan: [], customGoals: [], customDrills: [] };
 
 export function loadAppData(): AppData {
   try {
@@ -29,6 +29,7 @@ export function loadAppData(): AppData {
       weeklyPlan: Array.isArray(parsed.weeklyPlan) ? parsed.weeklyPlan : [],
       customGoals: Array.isArray(parsed.customGoals) ? parsed.customGoals : [],
       playerCard: parsed.playerCard && typeof parsed.playerCard === 'object' ? parsed.playerCard : undefined,
+      customDrills: Array.isArray(parsed.customDrills) ? parsed.customDrills : [],
     };
   } catch {
     return { ...EMPTY_DATA, sessions: [], completedGoals: [], goalCompletions: {} };
@@ -45,10 +46,10 @@ export function exportJson(data: AppData): void {
 }
 
 export function buildSessionsCsv(data: AppData): string {
-  const header = ['Tarih', 'Tür', 'Antrenman', 'Dakika', 'XP', 'Not', 'Hareket', 'Set', 'Tekrar', 'Ağırlık (kg)', 'RPE', 'Dinlenme (sn)', 'Maç dakikası', 'Olay', 'Olay ayrıntısı', 'GPS dosyası', 'GPS mesafe (km)', 'GPS süre (sn)'];
+  const header = ['Tarih', 'Tür', 'Antrenman', 'Dakika', 'XP', 'Not', 'Hareket', 'Set', 'Tekrar', 'Ağırlık (kg)', 'RPE', 'Dinlenme (sn)', 'Maç dakikası', 'Olay', 'Olay ayrıntısı', 'GPS dosyası', 'GPS mesafe (km)', 'GPS süre (sn)', 'Sesli not'];
   const eventLabels: Record<string, string> = { goal: 'Gol', assist: 'Asist', 'yellow-card': 'Sarı kart', 'red-card': 'Kırmızı kart', substitution: 'Oyuncu değişikliği', note: 'Not' };
   const sessionRows = data.sessions.flatMap((session) => {
-    const sessionFields = [session.date, session.kind, session.title, String(session.minutes), String(session.xp), session.note ?? '', '', '', ''];
+    const sessionFields = [session.date, session.kind, session.title, String(session.minutes), String(session.xp), session.note ?? '', '', '', '', session.voiceNoteId ? 'Cihazda (dosya dışa aktarılmadı)' : ''];
     const exerciseRows = !session.exercises?.length
       ? [[...sessionFields, '', '', '', '', '', '', '', '', '']]
       : session.exercises.flatMap((exercise) => {
@@ -64,7 +65,7 @@ export function buildSessionsCsv(data: AppData): string {
   });
   const gpsRows = (data.gpsActivities ?? []).map((activity) => [
     activity.date, 'gps', 'İçe aktarılan GPX', '', '', '', '', '', '', '', '', '', '', '', '',
-    activity.fileName, String(activity.distanceKm), String(activity.durationSeconds),
+    activity.fileName, String(activity.distanceKm), String(activity.durationSeconds), '',
   ]);
   const rows: string[][] = [header, ...sessionRows, ...gpsRows];
   const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(';')).join('\r\n');

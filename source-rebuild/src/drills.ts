@@ -1,11 +1,11 @@
-export type DrillCategory = 'Top kontrolü' | 'Pas' | 'Dripling' | 'Bitiricilik' | 'Hız & çeviklik';
+export type DrillCategory = 'Top kontrolü' | 'Pas' | 'Dripling' | 'Bitiricilik' | 'Hız & çeviklik' | 'Özel';
 
 export interface Drill {
   id: string;
   name: string;
   category: DrillCategory;
   duration: number;
-  level: 'Başlangıç' | 'Orta' | 'İleri';
+  level: 'Başlangıç' | 'Orta' | 'İleri' | 'Kişisel';
   positions: string[];
   equipment: string;
   description: string;
@@ -14,6 +14,7 @@ export interface Drill {
   alternateRoute?: string;
   cones: Array<[number, number]>;
   players: Array<[number, number]>;
+  isCustom?: boolean;
 }
 
 export const DRILL_LIBRARY: Drill[] = [

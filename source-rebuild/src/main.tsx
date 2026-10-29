@@ -4,6 +4,7 @@ import App from './App';
 import './index.css';
 import './visual-features.css';
 import './selected-features.css';
+import './follow-up-features.css';
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {

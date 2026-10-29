@@ -6,7 +6,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 const data: AppData = {
   profile: null,
-  sessions: [{ id: 'm1', kind: 'match', title: 'Maç', minutes: 90, xp: 50, date: '2026-10-29', matchEvents: [{ id: 'e1', minute: 12, type: 'goal', detail: 'Deniz' }] }],
+  sessions: [{ id: 'm1', kind: 'match', title: 'Maç', minutes: 90, xp: 50, date: '2026-10-29', voiceNoteId: 'audio-1', matchEvents: [{ id: 'e1', minute: 12, type: 'goal', detail: 'Deniz' }] }],
   completedGoals: [],
   gpsActivities: [{ id: 'g1', fileName: 'training.gpx', date: '2026-10-28', distanceKm: 3.5, durationSeconds: 900, route: [] }],
 };
@@ -24,7 +24,8 @@ describe('CSV backup rows', () => {
     const csv = buildSessionsCsv(data).replace(/^\uFEFF/, '');
     const rows = csv.split('\r\n');
     expect(rows).toHaveLength(4);
-    expect(rows.every((row) => row.split(';').length === 18)).toBe(true);
+    expect(rows.every((row) => row.split(';').length === 19)).toBe(true);
+    expect(rows[1]).toContain('"Cihazda (dosya dışa aktarılmadı)"');
     expect(rows[2]).toContain('"12";"Gol";"Deniz"');
     expect(rows[3]).toContain('"training.gpx";"3.5";"900"');
   });

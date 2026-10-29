@@ -1,35 +1,90 @@
 import { useRef, useState } from 'react';
-import type { ChangeEvent, CSSProperties } from 'react';
+import type { ChangeEvent, CSSProperties, MouseEvent } from 'react';
 import { getAchievements } from './achievements';
 import { getCustomGoalProgress, GOAL_METRIC_LABELS, GOAL_PERIOD_LABELS } from './goals';
+import { getWeekComparison } from './weekly-comparison';
 import { parseGpx, MAX_GPX_BYTES, formatDuration } from './gps';
 import { DRILL_LIBRARY, type Drill, type DrillCategory } from './drills';
 import { EXERCISE_LIBRARY, getWeekStartKey, localDateKey, MUSCLE_LABELS, shiftLocalDate } from './training';
 import type { ExerciseDefinition } from './training';
-import type { AppData, CustomGoal, GoalMetric, GoalPeriod, GpsActivity, MuscleGroup, TrainingSession, WeeklyPlanItem } from './types';
+import type { AppData, CustomDrill, CustomGoal, GoalMetric, GoalPeriod, GpsActivity, MuscleGroup, TrainingSession, WeeklyPlanItem } from './types';
 
-const CATEGORIES: Array<'Tümü' | DrillCategory> = ['Tümü', 'Top kontrolü', 'Pas', 'Dripling', 'Bitiricilik', 'Hız & çeviklik'];
+const CATEGORIES: Array<'Tümü' | DrillCategory> = ['Tümü', 'Top kontrolü', 'Pas', 'Dripling', 'Bitiricilik', 'Hız & çeviklik', 'Özel'];
 const MAX_GPS_ACTIVITIES = 30;
 const shortDate = (date: string) => new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' }).format(new Date(`${date}T12:00:00`));
 const formatNumber = (number: number, digits = 1) => new Intl.NumberFormat('tr-TR', { maximumFractionDigits: digits }).format(number);
 
-export function DrillLibrary({ onUse }: { onUse: (drill: Drill) => void }) {
+export function DrillLibrary({ onUse, customDrills = [], onSaveCustom, onDeleteCustom }: {
+  onUse: (drill: Drill) => void;
+  customDrills?: CustomDrill[];
+  onSaveCustom?: (drill: Omit<CustomDrill, 'id' | 'createdAt'>) => void;
+  onDeleteCustom?: (id: string) => void;
+}) {
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>('Tümü');
-  const drills = DRILL_LIBRARY.filter((drill) => category === 'Tümü' || drill.category === category);
+  const custom: Drill[] = customDrills.map((drill) => ({
+    id: drill.id, name: drill.name, category: 'Özel', duration: drill.duration, level: 'Kişisel',
+    positions: ['Kişisel'], equipment: drill.equipment || 'Belirtilmedi', description: drill.description,
+    cues: ['Kendi saha düzenine göre uygula'],
+    route: drill.routePoints.map(([x, y], index) => `${index ? 'L' : 'M'} ${x} ${y}`).join(' '),
+    cones: drill.cones, players: [drill.routePoints[0], drill.routePoints[drill.routePoints.length - 1]], isCustom: true,
+  }));
+  const drills = [...DRILL_LIBRARY, ...custom].filter((drill) => category === 'Tümü' || drill.category === category);
   return <div className="visual-workspace">
-    <section className="visual-intro"><span className="visual-intro__icon">⚽</span><div><p className="eyebrow">SAHADA DENEMEYE HAZIR</p><h2>Görselli çalışma kütüphanesi</h2><p>Her saha şeması kısa ve çevrimdışı çizimdir. Süreleri öneridir; kendi seviyene ve alanına göre uyarlayabilirsin.</p></div></section>
+    <section className="visual-intro"><span className="visual-intro__icon">⚽</span><div><p className="eyebrow">SAHADA DENEMEYE HAZIR</p><h2>Görselli çalışma kütüphanesi</h2><p>Hazır saha şemalarını kullan veya kendi rota ve konilerini çiz. Süreler öneridir; çalışma kayda dönüşmeden performans metriklerine eklenmez.</p></div></section>
+    {onSaveCustom && <CustomDrillBuilder count={customDrills.length} onSave={onSaveCustom} />}
     <div className="drill-filters" role="group" aria-label="Çalışma türünü filtrele">{CATEGORIES.map((item) => <button type="button" key={item} className={category === item ? 'active' : ''} aria-pressed={category === item} onClick={() => setCategory(item)}>{item}</button>)}</div>
-    <div className="drill-grid">{drills.map((drill) => <DrillCard key={drill.id} drill={drill} onUse={() => onUse(drill)} />)}</div>
-    <p className="analysis-disclaimer">Şemalar eğitim amaçlı örneklerdir; gerçek saha ölçüsü veya profesyonel antrenör yönlendirmesinin yerine geçmez.</p>
+    {drills.length ? <div className="drill-grid">{drills.map((drill) => <DrillCard key={drill.id} drill={drill} onUse={() => onUse(drill)} onDelete={drill.isCustom ? () => onDeleteCustom?.(drill.id) : undefined} />)}</div> : <p className="empty-copy">Bu filtrede henüz özel çalışma yok; ilkini yukarıda çiz.</p>}
+    <p className="analysis-disclaimer">Şemalar eğitim amaçlıdır; gerçek saha ölçüsü veya profesyonel antrenör yönlendirmesinin yerine geçmez.</p>
   </div>;
 }
 
-function DrillCard({ drill, onUse }: { drill: Drill; onUse: () => void }) {
+function DrillCard({ drill, onUse, onDelete }: { drill: Drill; onUse: () => void; onDelete?: () => void }) {
   const [playing, setPlaying] = useState(false);
   return <article className="drill-card">
     <div className={`drill-card__art${playing ? ' is-animated' : ''}`}><DrillDiagram drill={drill} animated={playing} /><span className="drill-duration">⏱ {drill.duration} dk</span><button type="button" className="drill-play" aria-pressed={playing} onClick={() => setPlaying((value) => !value)}>{playing ? 'Ⅱ Durdur' : '▶ Canlandır'}</button></div>
-    <div className="drill-card__body"><div className="drill-meta"><span>{drill.category}</span><span>{drill.level}</span></div><h3>{drill.name}</h3><p>{drill.description}</p><div className="drill-tags">{drill.positions.map((position) => <span key={position}>{position}</span>)}</div><div className="drill-equipment">🟠 {drill.equipment}</div><details className="drill-cues"><summary>Uygulama ipuçları</summary><ul>{drill.cues.map((cue) => <li key={cue}>{cue}</li>)}</ul></details><button type="button" className="secondary-button full-button" onClick={onUse}>Saha kaydına ekle <span aria-hidden="true">→</span></button></div>
+    <div className="drill-card__body"><div className="drill-meta"><span>{drill.category}</span><span>{drill.level}</span></div><h3>{drill.name}</h3><p>{drill.description}</p><div className="drill-tags">{drill.positions.map((position) => <span key={position}>{position}</span>)}</div><div className="drill-equipment">🟠 {drill.equipment}</div><details className="drill-cues"><summary>Uygulama ipuçları</summary><ul>{drill.cues.map((cue) => <li key={cue}>{cue}</li>)}</ul></details><button type="button" className="secondary-button full-button" onClick={onUse}>Saha kaydına ekle <span aria-hidden="true">→</span></button>{onDelete && <button type="button" className="drill-delete" onClick={onDelete}>Özel çalışmayı sil</button>}</div>
   </article>;
+}
+
+function CustomDrillBuilder({ count, onSave }: { count: number; onSave: (drill: Omit<CustomDrill, 'id' | 'createdAt'>) => void }) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('Kendi çizdiğim saha çalışması.');
+  const [equipment, setEquipment] = useState('Top · koniler');
+  const [duration, setDuration] = useState('15');
+  const [tool, setTool] = useState<'route' | 'cone'>('route');
+  const [routePoints, setRoutePoints] = useState<Array<[number, number]>>([]);
+  const [cones, setCones] = useState<Array<[number, number]>>([]);
+  const [error, setError] = useState('');
+  const addPoint = (event: MouseEvent<SVGSVGElement>) => {
+    if (count >= 20) { setError('En fazla 20 özel drill saklanabilir.'); return; }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.round(Math.max(10, Math.min(310, (event.clientX - rect.left) / rect.width * 320)));
+    const y = Math.round(Math.max(10, Math.min(180, (event.clientY - rect.top) / rect.height * 190)));
+    if (tool === 'route') {
+      if (routePoints.length >= 12) { setError('Bir drill için en fazla 12 rota noktası ekleyebilirsin.'); return; }
+      setRoutePoints((current) => [...current, [x, y]]);
+    } else {
+      if (cones.length >= 10) { setError('Bir drill için en fazla 10 koni ekleyebilirsin.'); return; }
+      setCones((current) => [...current, [x, y]]);
+    }
+    setError('');
+  };
+  const save = () => {
+    const parsedDuration = Number(duration);
+    if (!name.trim() || routePoints.length < 2 || !Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 120 || count >= 20) {
+      setError('İsim gir, sahaya en az iki rota noktası koy ve süreyi 1–120 dakika seç.'); return;
+    }
+    onSave({ name: name.trim().slice(0, 48), description: description.trim().slice(0, 160) || 'Kişisel saha çalışması.', equipment: equipment.trim().slice(0, 60) || 'Belirtilmedi', duration: parsedDuration, routePoints: [...routePoints], cones: [...cones] });
+    setName(''); setRoutePoints([]); setCones([]); setError('');
+  };
+  const route = routePoints.map(([x, y], index) => `${index ? 'L' : 'M'} ${x} ${y}`).join(' ');
+  return <section className="card custom-drill-builder"><div className="section-head compact"><div><p className="eyebrow">KENDİ SAHA ŞEMAN</p><h2>Drill oluştur <small>{count}/20</small></h2></div><span>✎</span></div><p className="field-help">Rota veya koni aracını seçip sahaya dokun. Noktalar cihazında saklanır.</p>
+    <label className="field-label">Çalışma adı<input value={name} onChange={(event) => setName(event.target.value)} maxLength={48} placeholder="Örn. Baskıdan çıkış" /></label>
+    <svg className="drill-builder-field" viewBox="0 0 320 190" role="img" aria-label="Kişisel drill çizim alanı; seçilen araçla noktalar eklemek için dokun" onClick={addPoint}><rect x="4" y="4" width="312" height="182" rx="15" fill="#173b2a" stroke="#89ab71"/><path d="M160 5V185M5 95H315" fill="none" stroke="#d8e5c3" strokeOpacity=".42"/><circle cx="160" cy="95" r="24" fill="none" stroke="#d8e5c3" strokeOpacity=".42"/>{routePoints.length > 1 && <path d={route} fill="none" stroke="#d8ff8c" strokeWidth="4" strokeDasharray="7 5" strokeLinecap="round" strokeLinejoin="round"/>}{routePoints.map(([x, y], index) => <g key={`route-${index}`}><circle cx={x} cy={y} r={index === 0 || index === routePoints.length - 1 ? 7 : 5} fill={index === 0 ? '#d8ff8c' : index === routePoints.length - 1 ? '#ff8167' : '#70d6ff'} stroke="#102018" strokeWidth="2"/><text x={x + 8} y={y - 7} fill="#efffdb" fontSize="8">{index === 0 ? 'BAŞLA' : index === routePoints.length - 1 ? 'BİTİR' : index + 1}</text></g>)}{cones.map(([x, y], index) => <path key={`cone-${index}`} d={`M${x} ${y - 7} l7 13 h-14 z`} fill="#fb923c" stroke="#fff0c2" strokeWidth="1.2"/>)}<g transform="translate(16 165)"><text x="0" y="0" fill="#d4e4d0" fontSize="8">● Rota noktası  ▲ Koni</text></g></svg>
+    <div className="builder-tools"><button type="button" className={tool === 'route' ? 'active' : ''} onClick={() => setTool('route')}>● Rota çiz</button><button type="button" className={tool === 'cone' ? 'active' : ''} onClick={() => setTool('cone')}>▲ Koni koy</button><button type="button" onClick={() => tool === 'route' ? setRoutePoints((points) => points.slice(0, -1)) : setCones((points) => points.slice(0, -1))}>Geri al</button><button type="button" onClick={() => { setRoutePoints([]); setCones([]); }}>Temizle</button></div>
+    <div className="form-grid"><label className="field-label">Süre (dk)<input type="number" min="1" max="120" value={duration} onChange={(event) => setDuration(event.target.value)} /></label><label className="field-label">Ekipman<input value={equipment} onChange={(event) => setEquipment(event.target.value)} maxLength={60} /></label></div>
+    <label className="field-label">Kısa açıklama<input value={description} onChange={(event) => setDescription(event.target.value)} maxLength={160} /></label>{error && <p className="gps-import-error" role="alert">{error}</p>}<button type="button" className="primary-button full-button" onClick={save} disabled={count >= 20}>Drill’i kaydet</button>
+  </section>;
 }
 
 function DrillDiagram({ drill, animated }: { drill: Drill; animated: boolean }) {
@@ -248,4 +303,29 @@ function CustomGoalPanel({ data, goals, onAdd, onDelete }: { data: AppData; goal
     })}</div>}
     <div className="custom-goal-form"><label className="field-label">Hedef adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={48} placeholder="Örn. Ayda 8 saha çalışması" /></label><div className="form-grid"><label className="field-label">Ölçüt<select value={metric} onChange={(event) => setMetric(event.target.value as GoalMetric)}>{Object.entries(GOAL_METRIC_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label><label className="field-label">Dönem<select value={period} onChange={(event) => setPeriod(event.target.value as GoalPeriod)}>{Object.entries(GOAL_PERIOD_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div><label className="field-label">Hedef miktarı<input type="number" min="0.1" max={metric === 'gpsKm' ? 1000 : 10000} step={metric === 'gpsKm' ? '0.1' : '1'} value={target} onChange={(event) => setTarget(event.target.value)} /></label>{error && <p className="gps-import-error" role="alert">{error}</p>}<button type="button" className="secondary-button full-button" onClick={add}>Kişisel hedef oluştur</button></div>
   </section>;
+}
+
+export function WeeklyComparison({ data }: { data: AppData }) {
+  const comparison = getWeekComparison(data);
+  const currentRange = `${shortDate(comparison.currentStart)} – ${shortDate(comparison.currentEnd)}`;
+  const previousRange = `${shortDate(comparison.previousStart)} – ${shortDate(comparison.previousEnd)}`;
+  const metrics = [
+    { key: 'sessions' as const, label: 'Aktif seans', unit: 'seans', icon: '⚽' },
+    { key: 'minutes' as const, label: 'Kaydedilen süre', unit: 'dk', icon: '⏱️' },
+    { key: 'gpsKm' as const, label: 'İçe aktarılan GPS', unit: 'km', icon: '⌁' },
+    { key: 'tests' as const, label: 'Test sonucu', unit: 'sonuç', icon: '📈' },
+  ];
+  return <div className="visual-workspace">
+    {data.demoMode && <p className="demo-data-note" role="note">Demo kayıtları haftalık kişisel karşılaştırmaya katılmaz.</p>}
+    <section className="visual-intro"><span className="visual-intro__icon">↔</span><div><p className="eyebrow">HAFTADAN HAFTAYA</p><h2>Ritmini karşılaştır</h2><p>Bu haftanın bugüne kadarki kayıtlarını, geçen haftanın aynı günleriyle yan yana gör.</p></div></section>
+    <div className="comparison-periods"><span><i className="comparison-dot current" />Bu hafta · {currentRange}</span><span><i className="comparison-dot previous" />Önceki hafta · {previousRange}</span></div>
+    <div className="comparison-grid">{metrics.map((metric) => {
+      const current = comparison.current[metric.key];
+      const previous = comparison.previous[metric.key];
+      const maximum = Math.max(current, previous, metric.key === 'gpsKm' ? .1 : 1);
+      const format = (value: number) => metric.key === 'gpsKm' ? formatNumber(value, 2) : formatNumber(value, 0);
+      return <article className="comparison-card" key={metric.key}><div className="comparison-card__head"><span>{metric.icon}</span><div><small>{metric.label}</small><b>{format(current)} <i>{metric.unit}</i></b></div></div><div className="comparison-row"><small>Bu hafta</small><div className="comparison-track"><i className="current" style={{ width: `${current ? Math.max(4, current / maximum * 100) : 0}%` }} /></div><b>{format(current)}</b></div><div className="comparison-row"><small>Önceki</small><div className="comparison-track"><i className="previous" style={{ width: `${previous ? Math.max(4, previous / maximum * 100) : 0}%` }} /></div><b>{format(previous)}</b></div></article>;
+    })}</div>
+    <p className="analysis-disclaimer">Bu yalnızca kayıt miktarlarının görsel karşılaştırmasıdır; tek başına performans, yorgunluk veya gelişim puanı değildir. GPS rotaları antrenman seanslarından ayrı sayılır.</p>
+  </div>;
 }

@@ -83,6 +83,7 @@ export interface TrainingSession {
   score?: string;
   matchEvents?: MatchEvent[];
   exercises?: LoggedExercise[];
+  voiceNoteId?: string;
 }
 
 export interface GpsRoutePoint {
@@ -124,6 +125,17 @@ export interface WeeklyPlanItem {
   completedSessionId?: string;
 }
 
+export interface CustomDrill {
+  id: string;
+  name: string;
+  duration: number;
+  description: string;
+  equipment: string;
+  routePoints: Array<[number, number]>;
+  cones: Array<[number, number]>;
+  createdAt: string;
+}
+
 export type PlayerCardTheme = 'field' | 'gold' | 'night';
 export interface PlayerCardAppearance {
   photoDataUrl?: string;
@@ -150,4 +162,5 @@ export interface AppData {
   weeklyPlan?: WeeklyPlanItem[];
   customGoals?: CustomGoal[];
   playerCard?: PlayerCardAppearance;
+  customDrills?: CustomDrill[];
 }

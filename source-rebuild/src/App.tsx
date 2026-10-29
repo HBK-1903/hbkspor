@@ -17,12 +17,15 @@ import {
   summarizeMuscleWorkload,
   XP_REWARDS,
 } from './training';
-import type { AppData, CustomGoal, ExerciseSet, LoggedExercise, MatchEvent, MatchEventType, MuscleGroup, PlayerCardAppearance, SessionKind, SkillTestRecord, TrainingSession, WeeklyPlanItem, WorkoutTemplate } from './types';
-import { DrillLibrary, ExerciseVisualLibrary, GpsActivityLibrary, ProgressAchievements, WeeklyPlanner } from './visual-features';
+import type { AppData, CustomDrill, CustomGoal, ExerciseSet, LoggedExercise, MatchEvent, MatchEventType, MuscleGroup, PlayerCardAppearance, SessionKind, SkillTestRecord, TrainingSession, WeeklyPlanItem, WorkoutTemplate } from './types';
+import { DrillLibrary, ExerciseVisualLibrary, GpsActivityLibrary, ProgressAchievements, WeeklyComparison, WeeklyPlanner } from './visual-features';
 import type { Drill } from './drills';
 import type { GpsActivity } from './types';
 import { PlayerCardEditor } from './PlayerCardEditor';
 import { DEFAULT_CARD_APPEARANCE } from './player-card';
+import { clearVoiceNotes, saveVoiceNote } from './audio-notes';
+import { VoiceNoteRecorder } from './VoiceNoteRecorder';
+import { VoiceNotePlayback } from './VoiceNotePlayback';
 
 const GOALS = [
   { id: 'water', title: 'Günde en az 3 litre su iç', detail: 'Kramp önleme ve performans' },
@@ -75,7 +78,7 @@ const freshSetDraft = (): SetDraft => ({ reps: '10', weightKg: '0', rpe: '7', re
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadAppData());
   const [tab, setTab] = useState<'home' | 'calendar' | 'stats' | 'settings'>('home');
-  const [statsView, setStatsView] = useState<'overview' | 'muscles' | 'tests' | 'drills' | 'exercises' | 'gps' | 'achievements'>('overview');
+  const [statsView, setStatsView] = useState<'overview' | 'muscles' | 'tests' | 'drills' | 'exercises' | 'gps' | 'achievements' | 'comparison'>('overview');
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeKind, setActiveKind] = useState<SessionKind | null>(null);
   const [activePlanId, setActivePlanId] = useState<string | null>(null);
@@ -97,6 +100,8 @@ export default function App() {
   const [setDraft, setSetDraft] = useState<SetDraft>(freshSetDraft);
   const [pendingSets, setPendingSets] = useState<ExerciseSet[]>([]);
   const [loggedExercises, setLoggedExercises] = useState<LoggedExercise[]>([]);
+  const [voiceNoteBlob, setVoiceNoteBlob] = useState<Blob | null>(null);
+  const [voiceRecording, setVoiceRecording] = useState(false);
   const [toast, setToast] = useState('');
 
   useEffect(() => saveAppData(data), [data]);
@@ -149,6 +154,7 @@ export default function App() {
       gpsActivities: [],
       weeklyPlan: [],
       customGoals: [],
+      customDrills: [],
     });
     setToast('Demo profili hazır. Veriler bu cihazda kalır.');
   };
@@ -170,6 +176,8 @@ export default function App() {
     setSetDraft(freshSetDraft());
     setPendingSets([]);
     setLoggedExercises([]);
+    setVoiceNoteBlob(null);
+    setVoiceRecording(false);
   };
 
   const addSet = () => {
@@ -321,8 +329,17 @@ export default function App() {
     setToast('Oyuncu kartı görünümü kaydedildi.');
   };
 
-  const saveSession = () => {
+  const saveCustomDrill = (drill: Omit<CustomDrill, 'id' | 'createdAt'>) => {
+    if ((data.customDrills?.length ?? 0) >= 20) { setToast('En fazla 20 özel drill saklanabilir.'); return; }
+    setData((current) => ({ ...current, customDrills: [{ ...drill, id: crypto.randomUUID(), createdAt: today }, ...(current.customDrills ?? [])] }));
+    setToast('Kişisel saha şeması kaydedildi.');
+  };
+
+  const deleteCustomDrill = (id: string) => setData((current) => ({ ...current, customDrills: (current.customDrills ?? []).filter((drill) => drill.id !== id) }));
+
+  const saveSession = async () => {
     if (!activeKind) return;
+    if (voiceRecording) { setToast('Önce ses kaydını bitir.'); return; }
     const duration = Number(minutes);
     if (!Number.isFinite(duration) || duration < 0 || duration > 600) {
       setToast('Süre 0–600 dakika arasında olmalı.');
@@ -339,7 +356,12 @@ export default function App() {
       ...(score.trim() ? { score: score.trim() } : {}),
       ...(activeKind === 'match' && matchEvents.length ? { matchEvents: [...matchEvents].sort((a, b) => a.minute - b.minute) } : {}),
       ...(activeKind === 'gym' && loggedExercises.length ? { exercises: loggedExercises } : {}),
+      ...(voiceNoteBlob ? { voiceNoteId: crypto.randomUUID() } : {}),
     };
+    if (voiceNoteBlob && session.voiceNoteId) {
+      try { await saveVoiceNote(session.voiceNoteId, voiceNoteBlob); }
+      catch (reason) { setToast(reason instanceof Error ? reason.message : 'Sesli not kaydedilemedi.'); return; }
+    }
     const planId = activePlanId;
     setData((current) => ({
       ...current,
@@ -368,10 +390,13 @@ export default function App() {
     });
   };
 
-  const resetProfile = () => {
-    if (!window.confirm('Bu cihazdaki HBK Spor profilini ve kayıtlarını sıfırlamak istiyor musun?')) return;
-    setData({ profile: null, demoMode: false, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [], weeklyPlan: [], customGoals: [], playerCard: undefined });
-    setToast('Profil sıfırlandı.');
+  const resetProfile = async () => {
+    if (!window.confirm('Bu cihazdaki HBK Spor profilini, kayıtlarını ve sesli notlarını sıfırlamak istiyor musun?')) return;
+    let cleanupWarning = '';
+    try { await clearVoiceNotes(); }
+    catch { cleanupWarning = ' Sesli not deposu tarayıcı tarafından kilitli; tekrar deneyebilirsin.'; }
+    setData({ profile: null, demoMode: false, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [], weeklyPlan: [], customGoals: [], customDrills: [], playerCard: undefined });
+    setToast(`Profil ve kayıtlar sıfırlandı.${cleanupWarning}`);
   };
 
   const renderHome = () => (
@@ -410,7 +435,7 @@ export default function App() {
       <div className="segmented-control" role="tablist" aria-label="İstatistik görünümü">
         {([
           ['overview', 'Genel'], ['muscles', 'Kas yükü'], ['tests', 'Testler'],
-          ['drills', 'Drill'], ['exercises', 'Hareket'], ['gps', 'GPS'], ['achievements', 'Rozetler'],
+          ['drills', 'Drill'], ['exercises', 'Hareket'], ['gps', 'GPS'], ['achievements', 'Rozetler'], ['comparison', 'Hafta'],
         ] as const).map(([view, label]) => <button key={view} role="tab" aria-selected={statsView === view} className={statsView === view ? 'active' : ''} onClick={() => setStatsView(view)}>{label}</button>)}
       </div>
       {statsView === 'muscles' ? (
@@ -418,26 +443,28 @@ export default function App() {
       ) : statsView === 'tests' ? (
         <PerformanceTests records={data.skillTests ?? []} onSave={saveSkillTest} />
       ) : statsView === 'drills' ? (
-        <DrillLibrary onUse={startDrill} />
+        <DrillLibrary onUse={startDrill} customDrills={data.customDrills ?? []} onSaveCustom={saveCustomDrill} onDeleteCustom={deleteCustomDrill} />
       ) : statsView === 'exercises' ? (
         <ExerciseVisualLibrary onChoose={startExercise} />
       ) : statsView === 'gps' ? (
         <GpsActivityLibrary activities={data.gpsActivities ?? []} onImport={importGpsActivity} onDelete={deleteGpsActivity} />
       ) : statsView === 'achievements' ? (
         <ProgressAchievements data={data} weekStart={weekStart} onAddGoal={addCustomGoal} onDeleteGoal={deleteCustomGoal} />
+      ) : statsView === 'comparison' ? (
+        <WeeklyComparison data={data} />
       ) : (
         <>
           <div className="stats-grid"><StatCard icon="⚡" value={String(totalXp)} label="Toplam XP" /><StatCard icon="📅" value={String(data.sessions.length)} label="Toplam seans" /><StatCard icon="🔥" value={String(streak)} label="Seri günü" /><StatCard icon="⏱️" value={`${data.sessions.reduce((sum, session) => sum + session.minutes, 0)}′`} label="Toplam süre" /></div>
           <section className="card"><p className="eyebrow">ÇALIŞMA DAĞILIMI</p><h2>Seans türleri</h2>{ACTIONS.map((action) => { const count = data.sessions.filter((session) => session.kind === action.kind).length; return <div key={action.kind} className="bar-row"><span>{action.icon} {action.label.replace('+ ', '')}</span><div className="bar"><i style={{ width: `${data.sessions.length ? Math.min(100, (count / data.sessions.length) * 100) : 0}%` }} /></div><b>{count}</b></div>; })}</section>
           <section className="card"><div className="section-head compact"><div><p className="eyebrow">KUVVET DETAYI</p><h2>Kas gruplarını incele</h2></div><span>💪</span></div><p className="empty-copy">Hareket, set, tekrar, ağırlık ve algılanan efor bilgilerini kaydedip haftalık tahmini kas yükünü gör.</p><button className="secondary-button full-button" onClick={() => setStatsView('muscles')}>Kas yükü raporunu aç</button></section>
-          <div className="feature-shortcuts"><button onClick={() => setStatsView('drills')}><span>⚽</span><b>Görselli drill’ler</b><small>Saha çizimleriyle çalışma seç</small></button><button onClick={() => setStatsView('exercises')}><span>💪</span><b>Hareket galerisi</b><small>Kas grubuna göre ara</small></button><button onClick={() => setStatsView('gps')}><span>⌁</span><b>GPS rotaları</b><small>GPX içe aktar ve haritada gör</small></button><button onClick={() => setStatsView('achievements')}><span>✦</span><b>İlerleme & hedefler</b><small>Kişisel kilometre taşları</small></button></div>
+          <div className="feature-shortcuts"><button onClick={() => setStatsView('drills')}><span>⚽</span><b>Görselli drill’ler</b><small>Saha çizimleriyle çalışma seç</small></button><button onClick={() => setStatsView('exercises')}><span>💪</span><b>Hareket galerisi</b><small>Kas grubuna göre ara</small></button><button onClick={() => setStatsView('gps')}><span>⌁</span><b>GPS rotaları</b><small>GPX içe aktar ve haritada gör</small></button><button onClick={() => setStatsView('achievements')}><span>✦</span><b>İlerleme & hedefler</b><small>Kişisel kilometre taşları</small></button><button onClick={() => setStatsView('comparison')}><span>↔</span><b>Hafta kıyasla</b><small>Eşit gün aralıklarını karşılaştır</small></button></div>
         </>
       )}
     </>
   );
 
   const renderSettings = () => (
-    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><PlayerCardEditor profile={data.profile!} appearance={data.playerCard} stats={{ sessions: data.sessions.length, xp: totalXp, level }} onSave={saveCardAppearance} /><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>Yedekle ve dışa aktar</h2><p className="empty-copy">Kayıtların yalnızca bu cihazda saklanır. İstediğinde yedeğini alabilirsin.</p><div className="settings-actions"><button className="primary-button" onClick={() => exportJson(data)}>JSON yedeği al</button><button className="secondary-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></div></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.2.0</p></>
+    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><PlayerCardEditor profile={data.profile!} appearance={data.playerCard} stats={{ sessions: data.sessions.length, xp: totalXp, level }} onSave={saveCardAppearance} /><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>Yedekle ve dışa aktar</h2><p className="empty-copy">Kayıtların yalnızca bu cihazda saklanır. İstediğinde JSON veya CSV yedeği alabilirsin.</p><p className="field-help">Sesli notlar cihazdaki ayrı yerel depoda kalır ve JSON / CSV dosyasına dahil edilmez.</p><div className="settings-actions"><button className="primary-button" onClick={() => exportJson(data)}>JSON yedeği al</button><button className="secondary-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></div></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.2.0</p></>
   );
 
   if (!data.profile) {
@@ -484,7 +511,8 @@ export default function App() {
         {(activeKind === 'gym' || activeKind === 'pitch') && <section className="template-tools"><div className="section-head compact"><div><p className="eyebrow">HIZLI BAŞLAT</p><h2>Şablonlar</h2></div><span>⚡</span></div>{activeKind === 'gym' && data.sessions.some((session) => session.kind === 'gym' && session.exercises?.length) && <button type="button" className="secondary-button full-button" onClick={copyLastGymWorkout}>Son gym antrenmanını kopyala</button>}{(data.workoutTemplates ?? []).filter((template) => template.kind === activeKind).map((template) => <div className="template-row" key={template.id}><button type="button" className="template-apply" onClick={() => applyTemplate(template)}><b>{template.name}</b><small>{template.minutes} dk · {template.exercises?.length ?? 0} hareket</small></button><button type="button" className="remove-exercise" aria-label={`${template.name} şablonunu sil`} onClick={() => deleteWorkoutTemplate(template.id)}>×</button></div>)}<label className="field-label">Bu kaydı şablon olarak sakla<input value={templateName} onChange={(event) => setTemplateName(event.target.value)} maxLength={48} placeholder={title || 'Şablon adı'} /></label><button type="button" className="secondary-button full-button" onClick={saveWorkoutTemplate}>Şablonu kaydet</button></section>}
         {activeKind === 'gym' && <ExerciseLogger draft={exerciseDraft} setDraft={setExerciseDraft} setDraftValue={setDraft} setSetDraft={setSetDraft} pendingSets={pendingSets} onAddSet={addSet} onRemoveSet={(id) => setPendingSets((current) => current.filter((set) => set.id !== id))} entries={loggedExercises} onAdd={addExercise} onRemove={(id) => setLoggedExercises((current) => current.filter((entry) => entry.id !== id))} />}
         {activeKind === 'gym' && restRemaining !== null && <div className="rest-timer" role="status" aria-live="polite"><div><small>SET ARASI DİNLENME</small><strong>{Math.floor(restRemaining / 60)}:{String(restRemaining % 60).padStart(2, '0')}</strong></div><button type="button" className="secondary-button" onClick={() => setRestRemaining(null)}>Durdur</button></div>}
-        <label className="field-label">Not<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Nasıl geçti?" /></label><button className="primary-button full-button" onClick={saveSession}>Kaydı tamamla</button>
+        <VoiceNoteRecorder onReady={setVoiceNoteBlob} onRecordingChange={setVoiceRecording} />
+        <label className="field-label">Not<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Nasıl geçti?" /></label><button className="primary-button full-button" disabled={voiceRecording} onClick={saveSession}>{voiceRecording ? 'Önce ses kaydını bitir' : 'Kaydı tamamla'}</button>
       </section></div>}
       {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
     </div>
@@ -641,7 +669,7 @@ function ProfileForm(props: { name: string; setName: (value: string) => void; po
 function SessionRow({ session }: { session: TrainingSession }) {
   const icon: Record<SessionKind, string> = { gym: '🏋️', pitch: '⚽', match: '🏟️', gps: '🏃', timer: '⏱️', recovery: '🧘', rest: '🌙' };
   const exerciseCount = session.exercises?.length ?? 0;
-  return <div className="session-row"><span className="session-icon">{icon[session.kind]}</span><span className="session-info"><b>{session.title}</b><small>{LABELS[session.kind]} · {shortDate(session.date)}{session.minutes ? ` · ${session.minutes} dk` : ''}{session.score ? ` · ${session.score}` : ''}{exerciseCount ? ` · ${exerciseCount} hareket` : ''}</small>{session.matchEvents?.length ? <ol className="session-event-timeline">{[...session.matchEvents].sort((a, b) => a.minute - b.minute).map((event) => <li key={event.id}><time>{event.minute}′</time><span>{MATCH_EVENT_LABELS[event.type]}{event.detail ? ` · ${event.detail}` : ''}</span></li>)}</ol> : null}</span><span className="session-xp">+{session.xp} XP</span></div>;
+  return <div className="session-row"><span className="session-icon">{icon[session.kind]}</span><span className="session-info"><b>{session.title}</b><small>{LABELS[session.kind]} · {shortDate(session.date)}{session.minutes ? ` · ${session.minutes} dk` : ''}{session.score ? ` · ${session.score}` : ''}{exerciseCount ? ` · ${exerciseCount} hareket` : ''}</small>{session.matchEvents?.length ? <ol className="session-event-timeline">{[...session.matchEvents].sort((a, b) => a.minute - b.minute).map((event) => <li key={event.id}><time>{event.minute}′</time><span>{MATCH_EVENT_LABELS[event.type]}{event.detail ? ` · ${event.detail}` : ''}</span></li>)}</ol> : null}{session.voiceNoteId && <VoiceNotePlayback id={session.voiceNoteId} />}</span><span className="session-xp">+{session.xp} XP</span></div>;
 }
 
 function PerformanceTests({ records, onSave }: { records: SkillTestRecord[]; onSave: (record: Omit<SkillTestRecord, 'id' | 'date'>) => void }) {
