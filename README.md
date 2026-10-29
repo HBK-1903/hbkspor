@@ -45,7 +45,7 @@ Antrenman, maç, plan ve profil kayıtları bu tarayıcıdaki **IndexedDB**’de
 
 Set bazında eklenen **RPE/dinlenme** ile içe aktarılan GPS dosyalarının özet ve rota noktaları cihazda ayrı localStorage anahtarlarında tutulur. Analiz penceresindeki **Analiz yedeğini indir / içe aktar** kontrolleri bu ek verileri taşır; ana uygulama antrenman/maç yedeğinin yerini almaz.
 
-GPS sekmesi Strava veya cihazlardan `.gpx`, `.tcx` ve `.fit` dosyalarını alır. Rota, tempo, 1 km turları, mesafe, hareket süresi ve dosyada varsa yükseklik, nabız/kadans gösterilir. Ham dosya sunucuya gönderilmez; dışarıdan alınan rotalar bu cihazda kalır ve silinebilir. Strava OAuth/API otomatik bağlantısı bu sürümde yoktur; ayrıntılar [`GPS ve analiz notlarında`](./hbk-spor-src/docs/performance-analytics.md).
+GPS sekmesi Strava veya cihazlardan `.gpx`, `.tcx` ve `.fit` dosyalarını alır. Haftalık mesafe trendi, aktivite sıralama, rota başına tempo/nabız/yükseklik/kadans grafikleri, ayrıntılı tur tablosu ve GPX rota dışa aktarımı vardır; uygulama GPS kayıtlarının kalite/kesinti özetleri de gösterilir. Ham dosya sunucuya gönderilmez; dışarıdan alınan rotalar bu cihazda kalır ve silinebilir. Strava OAuth/API otomatik bağlantısı bu sürümde yoktur; ayrıntılar [`GPS ve analiz notlarında`](./hbk-spor-src/docs/performance-analytics.md).
 
 > **RPE bir öz bildirimdir.** RPE × süre ölçülmüş yorgunluk/sakatlık riski değildir; kas grubu eşleştirmeleri ve etkin set katsayıları da yaklaşık planlama göstergeleridir. GPS hesaplamaları Strava/cihaz değerlerinden farklı olabilir.
 

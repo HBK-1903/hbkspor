@@ -45,7 +45,7 @@ Bu proje kendi başına deploy etmez. Üretim yönlendirmesi öncesi test, build
 
 ## GPS dosyası ve Strava
 
-GPS sekmesi `.gpx`, `.tcx` ve `.fit` dosyalarını kabul eder. GPX/TCX rota noktalarından yaklaşık mesafe, süre, hareket süresi, tempo ve 1 km turları hesaplanır. FIT içe aktarımında, varsa cihazın aktivite özeti tercih edilir. Rota, mesafe, tempo, hız, yükseklik artışı, nabız ve kadans yalnızca kaynağın sağladığı verilere dayanır; eksik sensör değerleri uydurulmaz.
+GPS sekmesi `.gpx`, `.tcx` ve `.fit` dosyalarını kabul eder. GPX/TCX rota noktalarından yaklaşık mesafe, süre, hareket süresi, tempo ve 1 km turları hesaplanır. FIT içe aktarımında, varsa cihazın aktivite özeti tercih edilir. GPS alanı haftalık mesafe trendi, sıralama, özet metrikler, rota başına tempo/nabız/yükseklik/kadans grafikleri, tur tablosu ve sadeleştirilmiş GPX dışa aktarımı sunar. Uygulamanın GPS kayıtlarındaki cihaz kalite özeti (doğruluk tahmini, reddedilen noktalar ve kesinti) varsa ayrıca gösterilir. Mesafe, tempo, hız, yükseklik, nabız ve kadans yalnızca kaynağın sağladığı verilere dayanır; eksik sensör değerleri uydurulmaz.
 
 Dosya 20 MB ile sınırlıdır. Ham dosya yüklenmez veya saklanmaz; içe aktarılan rota için en fazla 600 koordinat localStorage’da kalır ve kullanıcı aktivite kartından silebilir. Strava OAuth/API ile otomatik senkronizasyon bu sürümde yoktur. API bağlantısı için ayrıca OAuth izni ve secret’ları tarayıcı dışında tutan güvenli bir sunucu/Worker gerekir.
 

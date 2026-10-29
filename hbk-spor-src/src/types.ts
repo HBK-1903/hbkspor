@@ -74,6 +74,15 @@ export interface LegacyPlayerProfile {
 export interface GpsRoutePoint {
   lat: number;
   lon: number;
+  /** ISO timestamp retained from the source track when available. */
+  time?: string;
+  /** Cumulative distance from the start of the activity, in kilometres. */
+  distanceKm?: number;
+  elevationM?: number;
+  heartRate?: number;
+  cadence?: number;
+  accuracyM?: number;
+  speedKmh?: number;
 }
 
 export interface GpsSplit {
@@ -83,12 +92,24 @@ export interface GpsSplit {
   paceSecondsPerKm: number;
 }
 
+export interface GpsQuality {
+  grade: 'good' | 'fair' | 'poor';
+  medianAccuracyM?: number | null;
+  acceptedSegments?: number;
+  rejectedPoints?: number;
+  stationarySamples?: number;
+  gapSeconds?: number;
+  backgroundGapSeconds?: number;
+}
+
 export interface GpsActivity {
   id: string;
   date: string;
   distanceKm: number;
   elapsedSeconds: number;
   movingSeconds: number;
+  pausedSeconds?: number;
+  quality?: GpsQuality;
   avgSpeedKmh?: number;
   maxSpeedKmh?: number;
   elevationGainM?: number;
