@@ -1,6 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { exportJson, exportSessionsCsv, loadAppData, saveAppData } from './storage';
-import type { AppData, SessionKind, TrainingSession } from './types';
+import {
+  EXERCISE_LIBRARY,
+  formatSetDetails,
+  getExerciseAverageRpe,
+  getExerciseSetCount,
+  getExerciseTonnage,
+  getExerciseTotalReps,
+  getStreak,
+  getWeekStartKey,
+  localDateKey,
+  makeLoggedExerciseFromSets,
+  MUSCLE_LABELS,
+  shiftLocalDate,
+  summarizeMuscleWorkload,
+  XP_REWARDS,
+} from './training';
+import type { AppData, ExerciseSet, LoggedExercise, MuscleGroup, SessionKind, TrainingSession } from './types';
 
 const GOALS = [
   { id: 'water', title: 'Günde en az 3 litre su iç', detail: 'Kramp önleme ve performans' },
@@ -23,24 +39,27 @@ const LABELS: Record<SessionKind, string> = {
   gym: 'Gym', pitch: 'Saha', match: 'Maç', gps: 'GPS koşusu', timer: 'Tempo timer', recovery: 'Toparlanma', rest: 'Dinlenme',
 };
 
-const todayKey = () => new Date().toISOString().slice(0, 10);
 const shortDate = (value: string) => new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' }).format(new Date(`${value}T12:00:00`));
+const numberFormat = (value: number, maximumFractionDigits = 1) => new Intl.NumberFormat('tr-TR', { maximumFractionDigits }).format(value);
 
-function getStreak(sessions: TrainingSession[]): number {
-  const dates = new Set(sessions.map((session) => session.date));
-  let streak = 0;
-  const cursor = new Date();
-  cursor.setHours(12, 0, 0, 0);
-  while (dates.has(cursor.toISOString().slice(0, 10))) {
-    streak++;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  return streak;
+interface ExerciseDraft {
+  exerciseId: string;
 }
+
+interface SetDraft {
+  reps: string;
+  weightKg: string;
+  rpe: string;
+  restSeconds: string;
+}
+
+const freshExerciseDraft = (): ExerciseDraft => ({ exerciseId: EXERCISE_LIBRARY[0].id });
+const freshSetDraft = (): SetDraft => ({ reps: '10', weightKg: '0', rpe: '7', restSeconds: '90' });
 
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadAppData());
   const [tab, setTab] = useState<'home' | 'calendar' | 'stats' | 'settings'>('home');
+  const [statsView, setStatsView] = useState<'overview' | 'muscles'>('overview');
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeKind, setActiveKind] = useState<SessionKind | null>(null);
   const [profileName, setProfileName] = useState('');
@@ -51,45 +70,50 @@ export default function App() {
   const [minutes, setMinutes] = useState('45');
   const [note, setNote] = useState('');
   const [score, setScore] = useState('');
+  const [exerciseDraft, setExerciseDraft] = useState<ExerciseDraft>(freshExerciseDraft);
+  const [setDraft, setSetDraft] = useState<SetDraft>(freshSetDraft);
+  const [pendingSets, setPendingSets] = useState<ExerciseSet[]>([]);
+  const [loggedExercises, setLoggedExercises] = useState<LoggedExercise[]>([]);
   const [toast, setToast] = useState('');
 
   useEffect(() => saveAppData(data), [data]);
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(''), 2400);
+    const timer = window.setTimeout(() => setToast(''), 2600);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  const today = localDateKey();
+  const todayGoals = data.goalCompletions?.[today] ?? [];
   const totalXp = useMemo(() => data.sessions.reduce((sum, session) => sum + session.xp, 0), [data.sessions]);
   const level = Math.floor(totalXp / 150) + 1;
   const levelProgress = totalXp % 150;
-  const todaySessions = data.sessions.filter((session) => session.date === todayKey());
+  const todaySessions = data.sessions.filter((session) => session.date === today);
   const streak = getStreak(data.sessions);
-  const weekDays = useMemo(() => {
-    const now = new Date();
-    const mondayOffset = (now.getDay() + 6) % 7;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - mondayOffset);
-    return Array.from({ length: 7 }, (_, index) => {
-      const day = new Date(monday);
-      day.setDate(monday.getDate() + index);
-      const key = day.toISOString().slice(0, 10);
-      return { label: new Intl.DateTimeFormat('tr-TR', { weekday: 'short' }).format(day), key, active: data.sessions.some((session) => session.date === key) };
-    });
-  }, [data.sessions]);
+  const weekStart = getWeekStartKey();
+  const weekEnd = shiftLocalDate(weekStart, 6);
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => {
+    const key = shiftLocalDate(weekStart, index);
+    return {
+      label: new Intl.DateTimeFormat('tr-TR', { weekday: 'short' }).format(new Date(`${key}T12:00:00`)),
+      key,
+      active: data.sessions.some((session) => session.date === key),
+    };
+  }), [data.sessions, weekStart]);
 
   const createProfile = () => {
     const trimmed = profileName.trim();
     if (!trimmed) return;
-    setData((current) => ({ ...current, profile: { name: trimmed, position, dominantFoot: foot, createdAt: todayKey() } }));
+    setData((current) => ({ ...current, profile: { name: trimmed, position, dominantFoot: foot, createdAt: today } }));
     setToast(`Hoş geldin, ${trimmed}!`);
   };
 
   const startDemo = () => {
     setData({
-      profile: { name: 'Yıldız', position: 'Kanat', dominantFoot: 'Sağ', createdAt: todayKey() },
-      sessions: [{ id: crypto.randomUUID(), kind: 'pitch', title: 'İlk saha çalışmam', minutes: 35, xp: 90, date: todayKey(), note: 'Demo antrenmanı' }],
+      profile: { name: 'Yıldız', position: 'Kanat', dominantFoot: 'Sağ', createdAt: today },
+      sessions: [{ id: crypto.randomUUID(), kind: 'pitch', title: 'İlk saha çalışmam', minutes: 35, xp: XP_REWARDS.pitch, date: today, note: 'Demo antrenmanı' }],
       completedGoals: [],
+      goalCompletions: {},
     });
     setToast('Demo profili hazır. Veriler bu cihazda kalır.');
   };
@@ -97,32 +121,88 @@ export default function App() {
   const openAction = (kind: SessionKind) => {
     setActiveKind(kind);
     setSheetOpen(false);
-    setTitle(kind === 'gym' ? 'Üst Vücut & Core' : kind === 'pitch' ? 'Teknik çalışma' : kind === 'match' ? 'Haftalık maç' : LABELS[kind]);
+    setTitle(kind === 'gym' ? 'Kuvvet antrenmanı' : kind === 'pitch' ? 'Teknik çalışma' : kind === 'match' ? 'Haftalık maç' : LABELS[kind]);
     setMinutes(kind === 'rest' ? '0' : '45');
     setNote('');
     setScore('');
+    setExerciseDraft(freshExerciseDraft());
+    setSetDraft(freshSetDraft());
+    setPendingSets([]);
+    setLoggedExercises([]);
+  };
+
+  const addSet = () => {
+    const reps = Number(setDraft.reps);
+    const weightKg = Number(setDraft.weightKg);
+    const rpe = Number(setDraft.rpe);
+    const restSeconds = Number(setDraft.restSeconds);
+    if (!Number.isInteger(reps) || reps < 1 || reps > 100
+      || !Number.isFinite(weightKg) || weightKg < 0 || weightKg > 500
+      || !Number.isInteger(rpe) || rpe < 1 || rpe > 10
+      || !Number.isInteger(restSeconds) || restSeconds < 0 || restSeconds > 600
+      || pendingSets.length >= 20) {
+      setToast('Tekrar 1–100, yük 0–500 kg, RPE 1–10, dinlenme 0–600 sn; hareket başına en fazla 20 set.');
+      return;
+    }
+    setPendingSets((current) => [...current, { id: crypto.randomUUID(), reps, weightKg, rpe, restSeconds }]);
+  };
+
+  const addExercise = () => {
+    const definition = EXERCISE_LIBRARY.find((exercise) => exercise.id === exerciseDraft.exerciseId);
+    if (!definition) return;
+    const entry = makeLoggedExerciseFromSets(definition, pendingSets);
+    if (!entry) {
+      setToast('Bu harekete eklemeden önce en az bir geçerli set kaydet.');
+      return;
+    }
+    setLoggedExercises((current) => [...current, entry]);
+    setExerciseDraft(freshExerciseDraft());
+    setSetDraft(freshSetDraft());
+    setPendingSets([]);
   };
 
   const saveSession = () => {
     if (!activeKind) return;
-    const duration = Math.max(0, Number(minutes) || 0);
-    const baseXp: Record<SessionKind, number> = { gym: 50, pitch: 45, match: 70, gps: 40, timer: 35, recovery: 20, rest: 10 };
+    const duration = Number(minutes);
+    if (!Number.isFinite(duration) || duration < 0 || duration > 600) {
+      setToast('Süre 0–600 dakika arasında olmalı.');
+      return;
+    }
     const session: TrainingSession = {
-      id: crypto.randomUUID(), kind: activeKind, title: title.trim() || LABELS[activeKind], minutes: duration,
-      xp: baseXp[activeKind] + Math.floor(duration / 10) * 5, date: todayKey(), note: note.trim(), ...(score ? { score } : {}),
+      id: crypto.randomUUID(),
+      kind: activeKind,
+      title: title.trim() || LABELS[activeKind],
+      minutes: Math.round(duration),
+      xp: XP_REWARDS[activeKind],
+      date: today,
+      note: note.trim(),
+      ...(score.trim() ? { score: score.trim() } : {}),
+      ...(activeKind === 'gym' && loggedExercises.length ? { exercises: loggedExercises } : {}),
     };
     setData((current) => ({ ...current, sessions: [session, ...current.sessions] }));
     setActiveKind(null);
-    setToast(`${LABELS[session.kind]} kaydı eklendi · +${session.xp} XP`);
+    setToast(activeKind === 'gym' && loggedExercises.length === 0
+      ? 'Genel Gym kaydı eklendi. Kas analizi için sonraki kayıtta hareket detayı ekleyebilirsin.'
+      : `${LABELS[session.kind]} kaydı eklendi · +${session.xp} XP`);
   };
 
   const toggleGoal = (goalId: string) => {
-    setData((current) => ({ ...current, completedGoals: current.completedGoals.includes(goalId) ? current.completedGoals.filter((id) => id !== goalId) : [...current.completedGoals, goalId] }));
+    setData((current) => {
+      const goalCompletions = current.goalCompletions ?? {};
+      const completedToday = goalCompletions[today] ?? [];
+      const next = completedToday.includes(goalId)
+        ? completedToday.filter((id) => id !== goalId)
+        : [...completedToday, goalId];
+      return {
+        ...current,
+        goalCompletions: { ...goalCompletions, [today]: next },
+      };
+    });
   };
 
   const resetProfile = () => {
     if (!window.confirm('Bu cihazdaki HBK Spor profilini ve kayıtlarını sıfırlamak istiyor musun?')) return;
-    setData({ profile: null, sessions: [], completedGoals: [] });
+    setData({ profile: null, sessions: [], completedGoals: [], goalCompletions: {} });
     setToast('Profil sıfırlandı.');
   };
 
@@ -134,15 +214,19 @@ export default function App() {
       </header>
       <section className="player-card">
         <div className="player-card__head"><div><span className="muted-label">OYUNCU KARTI</span><h2>{data.profile?.position}</h2></div><span className="level-badge">🥉 Lv.{level} Çaylak</span></div>
-        <div className="rating-row"><span><b>55</b><small>HIZ</small></span><span><b>50</b><small>ŞUT</small></span><span><b>50</b><small>PAS</small></span><span className="xp-block"><b>{totalXp}</b><small>XP</small></span></div>
+        <div className="rating-row">
+          <span><b>{weekDays.filter((day) => day.active).length}</b><small>AKTİF GÜN</small></span>
+          <span><b>{data.sessions.length}</b><small>TOPLAM SEANS</small></span>
+          <span className="xp-block"><b>{totalXp}</b><small>XP</small></span>
+        </div>
         <div className="xp-track"><span style={{ width: `${(levelProgress / 150) * 100}%` }} /></div>
-        <p className="xp-caption">Lv.{level + 1} için {150 - levelProgress} XP kaldı</p>
+        <p className="xp-caption">Sonraki seviye için {150 - levelProgress} XP kaldı</p>
       </section>
       <section className="section-head"><div><p className="eyebrow">BUGÜN · {new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long' }).format(new Date())}</p><h2>Bugünün rotası</h2></div><span className="streak">🔥 {streak} gün</span></section>
-      <button className="route-card" onClick={() => openAction('gym')}><span className="route-icon">🏋️</span><span className="route-copy"><b>Üst Vücut & Core</b><small>{todaySessions.length ? 'Kaydını ekle veya antrenmanını tamamla' : 'Planından bir çalışma seç ve başla'}</small></span><span className="route-arrow">›</span></button>
+      <button className="route-card" onClick={() => openAction('gym')}><span className="route-icon">🏋️</span><span className="route-copy"><b>Kuvvet antrenmanı</b><small>{todaySessions.length ? 'Çalışmanı kaydet veya hareketlerini ekle' : 'Hareketlerini ve setlerini kaydet'}</small></span><span className="route-arrow">›</span></button>
       <div className="quick-actions">{ACTIONS.slice(0, 4).map((action) => <button key={action.kind} onClick={() => openAction(action.kind)}><span>{action.icon}</span><small>{action.label.replace('+ ', '')}</small></button>)}</div>
-      <section className="card momentum"><div className="section-head compact"><div><p className="eyebrow">BU HAFTAKİ MOMENTUM</p><h2>{new Set(data.sessions.filter((session) => weekDays.some((day) => day.key === session.date)).map((session) => session.date)).size}/5 seans</h2></div><span>⚡</span></div><div className="week-row">{weekDays.map((day) => <div key={day.key} className="week-day"><span>{day.label}</span><i className={day.active ? 'done' : ''}>{day.active ? '✓' : '·'}</i></div>)}</div></section>
-      <section className="card goals"><div className="section-head compact"><div><p className="eyebrow">GÜNLÜK HEDEFLER</p><h2>{data.completedGoals.length}/{GOALS.length}</h2></div><span>🎯</span></div>{GOALS.map((goal) => <label key={goal.id} className="goal-row"><input type="checkbox" checked={data.completedGoals.includes(goal.id)} onChange={() => toggleGoal(goal.id)} /><span><b>{goal.title}</b><small>{goal.detail}</small></span></label>)}</section>
+      <section className="card momentum"><div className="section-head compact"><div><p className="eyebrow">BU HAFTAKİ MOMENTUM</p><h2>{new Set(data.sessions.filter((session) => session.date >= weekStart && session.date <= weekEnd).map((session) => session.date)).size}/5 seans</h2></div><span>⚡</span></div><div className="week-row">{weekDays.map((day) => <div key={day.key} className="week-day"><span>{day.label}</span><i className={day.active ? 'done' : ''}>{day.active ? '✓' : '·'}</i></div>)}</div></section>
+      <section className="card goals"><div className="section-head compact"><div><p className="eyebrow">BUGÜNÜN HEDEFLERİ</p><h2>{todayGoals.length}/{GOALS.length}</h2></div><span>🎯</span></div>{GOALS.map((goal) => <label key={goal.id} className="goal-row"><input type="checkbox" checked={todayGoals.includes(goal.id)} onChange={() => toggleGoal(goal.id)} /><span><b>{goal.title}</b><small>{goal.detail}</small></span></label>)}</section>
       <section className="card recent"><div className="section-head compact"><div><p className="eyebrow">SON KAYITLAR</p><h2>Gelişimin</h2></div><button className="text-button" onClick={() => setTab('calendar')}>Tümünü gör</button></div>{data.sessions.slice(0, 3).map((session) => <SessionRow key={session.id} session={session} />)}{!data.sessions.length && <p className="empty-copy">İlk antrenmanını kaydet, gelişimin burada görünsün.</p>}</section>
     </>
   );
@@ -152,11 +236,26 @@ export default function App() {
   );
 
   const renderStats = () => (
-    <><header className="topbar"><div><p className="eyebrow">İSTATİSTİK</p><h1>Gelişim özeti</h1></div><span className="level-badge">Lv.{level}</span></header><div className="stats-grid"><StatCard icon="⚡" value={String(totalXp)} label="Toplam XP" /><StatCard icon="📅" value={String(data.sessions.length)} label="Toplam seans" /><StatCard icon="🔥" value={String(streak)} label="Seri günü" /><StatCard icon="⏱️" value={`${data.sessions.reduce((sum, session) => sum + session.minutes, 0)}′`} label="Toplam süre" /></div><section className="card"><p className="eyebrow">ÇALIŞMA DAĞILIMI</p><h2>Son kayıtların</h2>{ACTIONS.slice(0, 4).map((action) => { const count = data.sessions.filter((session) => session.kind === action.kind).length; return <div key={action.kind} className="bar-row"><span>{action.icon} {action.label.replace('+ ', '')}</span><div className="bar"><i style={{ width: `${Math.min(100, count * 18)}%` }} /></div><b>{count}</b></div>; })}</section><section className="card"><p className="eyebrow">OYUNCU GELİŞİMİ</p><h2>İstikrar, gelişimin temelidir</h2><p className="empty-copy">Her kayıtta XP kazan; haftalık ritmini koru ve antrenman geçmişini düzenli takip et.</p></section></>
+    <>
+      <header className="topbar"><div><p className="eyebrow">İSTATİSTİK</p><h1>Gelişim özeti</h1></div><span className="level-badge">Lv.{level}</span></header>
+      <div className="segmented-control" role="tablist" aria-label="İstatistik görünümü">
+        <button role="tab" aria-selected={statsView === 'overview'} className={statsView === 'overview' ? 'active' : ''} onClick={() => setStatsView('overview')}>Genel bakış</button>
+        <button role="tab" aria-selected={statsView === 'muscles'} className={statsView === 'muscles' ? 'active' : ''} onClick={() => setStatsView('muscles')}>Kas yükü</button>
+      </div>
+      {statsView === 'muscles' ? (
+        <MuscleAnalysis sessions={data.sessions} weekStart={weekStart} onAddGym={() => openAction('gym')} />
+      ) : (
+        <>
+          <div className="stats-grid"><StatCard icon="⚡" value={String(totalXp)} label="Toplam XP" /><StatCard icon="📅" value={String(data.sessions.length)} label="Toplam seans" /><StatCard icon="🔥" value={String(streak)} label="Seri günü" /><StatCard icon="⏱️" value={`${data.sessions.reduce((sum, session) => sum + session.minutes, 0)}′`} label="Toplam süre" /></div>
+          <section className="card"><p className="eyebrow">ÇALIŞMA DAĞILIMI</p><h2>Seans türleri</h2>{ACTIONS.map((action) => { const count = data.sessions.filter((session) => session.kind === action.kind).length; return <div key={action.kind} className="bar-row"><span>{action.icon} {action.label.replace('+ ', '')}</span><div className="bar"><i style={{ width: `${data.sessions.length ? Math.min(100, (count / data.sessions.length) * 100) : 0}%` }} /></div><b>{count}</b></div>; })}</section>
+          <section className="card"><div className="section-head compact"><div><p className="eyebrow">KUVVET DETAYI</p><h2>Kas gruplarını incele</h2></div><span>💪</span></div><p className="empty-copy">Hareket, set, tekrar, ağırlık ve algılanan efor bilgilerini kaydedip haftalık tahmini kas yükünü gör.</p><button className="secondary-button full-button" onClick={() => setStatsView('muscles')}>Kas yükü raporunu aç</button></section>
+        </>
+      )}
+    </>
   );
 
   const renderSettings = () => (
-    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>Yedekle ve dışa aktar</h2><p className="empty-copy">Kayıtların yalnızca bu cihazda saklanır. İstediğinde yedeğini alabilirsin.</p><div className="settings-actions"><button className="primary-button" onClick={() => exportJson(data)}>JSON yedeği al</button><button className="secondary-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></div></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.1.0</p></>
+    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>Yedekle ve dışa aktar</h2><p className="empty-copy">Kayıtların yalnızca bu cihazda saklanır. İstediğinde yedeğini alabilirsin.</p><div className="settings-actions"><button className="primary-button" onClick={() => exportJson(data)}>JSON yedeği al</button><button className="secondary-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></div></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.2.0</p></>
   );
 
   if (!data.profile) {
@@ -195,10 +294,153 @@ export default function App() {
         <button className={tab === 'settings' ? 'selected' : ''} onClick={() => setTab('settings')}><span>⚙</span><small>Ayarlar</small></button>
       </nav>
       {sheetOpen && <div className="scrim" onMouseDown={() => setSheetOpen(false)}><section className="action-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-handle" /><div className="section-head compact"><div><p className="eyebrow">YENİ KAYIT</p><h2 id="sheet-title">Bugün ne yaptın?</h2></div><button className="close-button" aria-label="Kapat" onClick={() => setSheetOpen(false)}>×</button></div><div className="action-list">{ACTIONS.map((action) => <button key={action.kind} onClick={() => openAction(action.kind)}><span className="action-icon">{action.icon}</span><span><b>{action.label}</b><small>{action.hint}</small></span><span className="route-arrow">›</span></button>)}</div></section></div>}
-      {activeKind && <div className="scrim" onMouseDown={() => setActiveKind(null)}><section className="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-title" onMouseDown={(event) => event.stopPropagation()}><div className="section-head compact"><div><p className="eyebrow">{LABELS[activeKind].toUpperCase()} KAYDI</p><h2 id="session-title">Çalışmanı kaydet</h2></div><button className="close-button" aria-label="Kapat" onClick={() => setActiveKind(null)}>×</button></div><label className="field-label">Çalışma adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={60} /></label>{activeKind === 'match' && <label className="field-label">Skor<input value={score} onChange={(event) => setScore(event.target.value)} placeholder="2-1" /></label>}<label className="field-label">Süre (dakika)<input type="number" min="0" max="600" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label><label className="field-label">Not<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Nasıl geçti?" /></label><button className="primary-button full-button" onClick={saveSession}>Kaydı tamamla</button></section></div>}
+      {activeKind && <div className="scrim" onMouseDown={() => setActiveKind(null)}><section className="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-title" onMouseDown={(event) => event.stopPropagation()}><div className="section-head compact"><div><p className="eyebrow">{LABELS[activeKind].toUpperCase()} KAYDI</p><h2 id="session-title">Çalışmanı kaydet</h2></div><button className="close-button" aria-label="Kapat" onClick={() => setActiveKind(null)}>×</button></div><label className="field-label">Çalışma adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={60} /></label>{activeKind === 'match' && <label className="field-label">Skor<input value={score} onChange={(event) => setScore(event.target.value)} placeholder="2-1" /></label>}<label className="field-label">Süre (dakika)<input type="number" min="0" max="600" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>{activeKind === 'gym' && <ExerciseLogger draft={exerciseDraft} setDraft={setExerciseDraft} setDraftValue={setDraft} setSetDraft={setSetDraft} pendingSets={pendingSets} onAddSet={addSet} onRemoveSet={(id) => setPendingSets((current) => current.filter((set) => set.id !== id))} entries={loggedExercises} onAdd={addExercise} onRemove={(id) => setLoggedExercises((current) => current.filter((entry) => entry.id !== id))} />}<label className="field-label">Not<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Nasıl geçti?" /></label><button className="primary-button full-button" onClick={saveSession}>Kaydı tamamla</button></section></div>}
       {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
     </div>
   );
+}
+
+function ExerciseLogger({ draft, setDraft, setDraftValue, setSetDraft, pendingSets, onAddSet, onRemoveSet, entries, onAdd, onRemove }: { draft: ExerciseDraft; setDraft: (draft: ExerciseDraft) => void; setDraftValue: SetDraft; setSetDraft: (draft: SetDraft) => void; pendingSets: ExerciseSet[]; onAddSet: () => void; onRemoveSet: (id: string) => void; entries: LoggedExercise[]; onAdd: () => void; onRemove: (id: string) => void }) {
+  return (
+    <section className="exercise-logger" aria-labelledby="exercise-logger-title">
+      <div className="section-head compact"><div><p className="eyebrow">KAS YÜKÜ TAKİBİ</p><h2 id="exercise-logger-title">Hareket ekle</h2></div><span>🏋️</span></div>
+      <p className="field-help">Her seti ayrı kaydet. Böylece tekrar, ağırlık, dinlenme ve efor setten sete değişebilir.</p>
+      <label className="field-label">Hareket<select value={draft.exerciseId} disabled={pendingSets.length > 0} onChange={(event) => setDraft({ exerciseId: event.target.value })}>{EXERCISE_LIBRARY.map((exercise) => <option key={exercise.id} value={exercise.id}>{exercise.name}</option>)}</select></label>
+      {pendingSets.length > 0 && <p className="field-help">Hareketi değiştirmek için önce bu hareketi antrenman listesine ekle.</p>}
+      <div className="exercise-input-grid">
+        <label className="field-label">Tekrar<input type="number" min="1" max="100" step="1" value={setDraftValue.reps} onChange={(event) => setSetDraft({ ...setDraftValue, reps: event.target.value })} /></label>
+        <label className="field-label">Ağırlık (kg)<input type="number" min="0" max="500" step="0.5" value={setDraftValue.weightKg} onChange={(event) => setSetDraft({ ...setDraftValue, weightKg: event.target.value })} /></label>
+        <label className="field-label">Efor (RPE)<select value={setDraftValue.rpe} onChange={(event) => setSetDraft({ ...setDraftValue, rpe: event.target.value })}>{Array.from({ length: 10 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value} / 10</option>)}</select></label>
+        <label className="field-label">Dinlenme (sn)<input type="number" min="0" max="600" step="5" value={setDraftValue.restSeconds} onChange={(event) => setSetDraft({ ...setDraftValue, restSeconds: event.target.value })} /></label>
+      </div>
+      <p className="field-help">RPE: 1 çok hafif, 10 verebileceğin en yüksek efor. Ağrıyı puanlama. Ağırlıksız harekette 0 kg bırak.</p>
+      <button type="button" className="secondary-button full-button" onClick={onAddSet}>＋ Seti ekle{pendingSets.length ? ` (${pendingSets.length + 1}. set)` : ''}</button>
+      {pendingSets.length > 0 && <div className="pending-sets" aria-label="Hareketin setleri"><b>{EXERCISE_LIBRARY.find((exercise) => exercise.id === draft.exerciseId)?.name} · {pendingSets.length} set</b>{pendingSets.map((set, index) => <div className="pending-set-row" key={set.id}><span>Set {index + 1}: {set.reps} tekrar · {set.weightKg ? `${numberFormat(set.weightKg)} kg` : '0 kg'} · RPE {set.rpe} · {set.restSeconds} sn dinlenme</span><button type="button" className="remove-exercise" aria-label={`${index + 1}. seti kaldır`} onClick={() => onRemoveSet(set.id)}>×</button></div>)}<button type="button" className="primary-button full-button" onClick={onAdd}>Hareketi antrenmana ekle</button></div>}
+      <p className="field-help">Kas eşleştirmeleri tahminidir. Ana kas için 1 set, yardımcı kas için 0,5 set sayılır.</p>
+      {entries.length > 0 && <ul className="exercise-entry-list" aria-label="Antrenmana eklenen hareketler">{entries.map((entry) => <li key={entry.id}><div><b>{entry.name}</b><small>{formatSetDetails(entry)} · ortalama RPE {numberFormat(getExerciseAverageRpe(entry))}</small><small>{formatMuscleNames(entry.primaryMuscles)} · yardımcı: {formatMuscleNames(entry.secondaryMuscles)}</small></div><button type="button" className="remove-exercise" aria-label={`${entry.name} hareketini kaldır`} onClick={() => onRemove(entry.id)}>×</button></li>)}</ul>}
+    </section>
+  );
+}
+
+function MuscleAnalysis({ sessions, weekStart, onAddGym }: { sessions: TrainingSession[]; weekStart: string; onAddGym: () => void }) {
+  const [weeks, setWeeks] = useState<1 | 4 | 12>(4);
+  const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup | null>(null);
+  const [selectedExerciseId, setSelectedExerciseId] = useState('');
+  const today = localDateKey();
+  const rangeStart = shiftLocalDate(weekStart, -(weeks - 1) * 7);
+  const summaries = summarizeMuscleWorkload(sessions, rangeStart, today);
+  const maxSets = Math.max(1, ...summaries.map((item) => item.effectiveSets));
+  const rangeSessions = sessions.filter((session) => session.date >= rangeStart && session.date <= today);
+  const exerciseRecords = rangeSessions.flatMap((session) => (session.exercises ?? []).map((exercise) => ({ session, exercise })))
+    .sort((a, b) => a.session.date.localeCompare(b.session.date));
+  const averageRpe = exerciseRecords.length
+    ? exerciseRecords.reduce((sum, item) => sum + getExerciseAverageRpe(item.exercise), 0) / exerciseRecords.length
+    : null;
+  const totalEffectiveSets = summaries.reduce((sum, item) => sum + item.effectiveSets, 0);
+  const selectedExercise = exerciseRecords.some((record) => record.exercise.exerciseId === selectedExerciseId)
+    ? selectedExerciseId
+    : exerciseRecords[0]?.exercise.exerciseId ?? '';
+  const filteredRecords = selectedMuscle
+    ? exerciseRecords.filter(({ exercise }) => exercise.primaryMuscles.includes(selectedMuscle) || exercise.secondaryMuscles.includes(selectedMuscle))
+    : exerciseRecords;
+
+  return (
+    <>
+      <header className="muscle-report-header"><p className="eyebrow">KUVVET YÜKÜ</p><h2>{shortDate(rangeStart)} – {shortDate(today)}</h2><p className="empty-copy">Gym hareketlerinden hesaplanır. Saha ve maç yükleri bu rapora dahil değildir.</p></header>
+      <div className="period-picker" role="group" aria-label="Rapor dönemi">{([1, 4, 12] as const).map((value) => <button key={value} className={weeks === value ? 'active' : ''} aria-pressed={weeks === value} onClick={() => setWeeks(value)}>{value === 1 ? '1 hafta' : `${value} hafta`}</button>)}</div>
+      <div className="stats-grid"><StatCard icon="💪" value={numberFormat(totalEffectiveSets)} label="Kas-set eşdeğeri" /><StatCard icon="🧠" value={averageRpe === null ? '—' : `${numberFormat(averageRpe)} / 10`} label="Kendi bildirdiğin efor" /></div>
+      <section className="card"><div className="section-head compact"><div><p className="eyebrow">VÜCUT HARİTASI</p><h2>Çalışan bölgeler</h2></div><span>🧍</span></div><MuscleBodyMap summaries={summaries} selected={selectedMuscle} onSelect={setSelectedMuscle} /><p className="field-help">Renk yoğunluğu, seçili dönemdeki tahmini kas-set eşdeğerini gösterir. Bir bölgeye dokunarak hareketlerini filtrele.</p></section>
+      <section className="card muscle-load-card"><div className="section-head compact"><div><p className="eyebrow">KAS GRUBUNA GÖRE</p><h2>{selectedMuscle ? MUSCLE_LABELS[selectedMuscle] : 'Kas yükü dağılımı'}</h2></div><span>📊</span></div>
+        {totalEffectiveSets === 0 ? <div className="empty-muscle"><p className="empty-copy">Bu dönemde henüz hareket/set detayı yok. Bir Gym kaydına hareket eklediğinde kas yükü burada görünür.</p><button className="primary-button full-button" onClick={onAddGym}>Gym hareketi kaydet</button></div> : <div className="muscle-list">{summaries.map((item) => <MuscleLoadRow key={item.muscle} muscle={item.muscle} sets={item.effectiveSets} maxSets={maxSets} rpe={item.weightedRpe} movementCount={item.movementCount} selected={selectedMuscle === item.muscle} onClick={() => setSelectedMuscle((current) => current === item.muscle ? null : item.muscle)} />)}</div>}
+      </section>
+      <TrainingHeatmap sessions={rangeSessions} rangeStart={rangeStart} weeks={weeks} />
+      <ExerciseProgressChart records={exerciseRecords} selectedExerciseId={selectedExercise} onSelect={setSelectedExerciseId} />
+      <section className="card movement-details"><div className="section-head compact"><div><p className="eyebrow">HAREKET GEÇMİŞİ</p><h2>{filteredRecords.length} hareket kaydı</h2></div>{selectedMuscle && <button className="text-button" onClick={() => setSelectedMuscle(null)}>Filtreyi kaldır</button>}</div>
+        {filteredRecords.length ? <ul className="movement-history">{[...filteredRecords].reverse().map(({ session, exercise }) => <li key={`${session.id}-${exercise.id}`}><div className="movement-history__top"><b>{exercise.name}</b><time dateTime={session.date}>{shortDate(session.date)}</time></div><p>{formatSetDetails(exercise)}</p><p>{formatMuscleNames(exercise.primaryMuscles)} <span>· yardımcı: {formatMuscleNames(exercise.secondaryMuscles)}</span></p><div className="movement-history__foot"><span>{getExerciseTonnage(exercise) > 0 ? `${numberFormat(getExerciseTonnage(exercise), 0)} kg·tekrar dış yük hacmi` : 'Dış yük hacmi kaydedilmedi'}</span><span>Algılanan efor: RPE {numberFormat(getExerciseAverageRpe(exercise))}/10</span></div>{exercise.setDetails?.length ? <details className="set-breakdown"><summary>Set ayrıntılarını göster</summary>{exercise.setDetails.map((set, index) => <p key={set.id}>Set {index + 1}: {set.reps} tekrar · {set.weightKg} kg · RPE {set.rpe} · {set.restSeconds} sn dinlenme</p>)}</details> : <p className="field-help">Bu eski kayıtta set başına ayrıntı bulunmuyor.</p>}</li>)}</ul> : <p className="empty-copy">{selectedMuscle ? `${MUSCLE_LABELS[selectedMuscle]} için bu dönemde kayıtlı hareket yok.` : 'Ağırlıksız hareketler de set sayısı olarak rapora girer; ilk hareketini ekle.'}</p>}
+      </section>
+      <p className="analysis-disclaimer">Bu rapor fizyolojik yorgunluğu veya sakatlık riskini ölçmez. Kas eşleştirmeleri ve etkin setler yaklaşık antrenman planlama göstergeleridir; RPE ise senin 1–10 arası öznel efor puanındır. Ağrı veya olağandışı yorgunluk varsa antrenmanı bırakıp uzman görüşü al.</p>
+    </>
+  );
+}
+
+function MuscleLoadRow({ muscle, sets, maxSets, rpe, movementCount, selected, onClick }: { muscle: MuscleGroup; sets: number; maxSets: number; rpe: number | null; movementCount: number; selected: boolean; onClick: () => void }) {
+  return (
+    <button type="button" className={`muscle-load-row muscle-load-row-button ${selected ? 'selected' : ''}`} aria-pressed={selected} onClick={onClick}>
+      <span className="muscle-load-row__top"><b>{MUSCLE_LABELS[muscle]}</b><span>{numberFormat(sets)} etkin set</span></span>
+      <span className="muscle-bar" role="progressbar" aria-label={`${MUSCLE_LABELS[muscle]} tahmini etkin set`} aria-valuemin={0} aria-valuemax={maxSets} aria-valuenow={sets}><i style={{ width: `${sets > 0 ? Math.max(2, (sets / maxSets) * 100) : 0}%` }} /></span>
+      <small>{movementCount} hareket · {rpe === null ? 'RPE yok' : `ortalama RPE ${numberFormat(rpe)}`}</small>
+    </button>
+  );
+}
+
+function MuscleBodyMap({ summaries, selected, onSelect }: { summaries: ReturnType<typeof summarizeMuscleWorkload>; selected: MuscleGroup | null; onSelect: (muscle: MuscleGroup | null) => void }) {
+  const values = new Map(summaries.map((item) => [item.muscle, item.effectiveSets]));
+  const max = Math.max(1, ...summaries.map((item) => item.effectiveSets));
+  const region = (muscle: MuscleGroup, shapes: React.ReactNode) => {
+    const value = values.get(muscle) ?? 0;
+    const active = selected === muscle;
+    const opacity = value > 0 ? 0.24 + (value / max) * 0.72 : 0.14;
+    const onKeyDown = (event: React.KeyboardEvent<SVGGElement>) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(active ? null : muscle); }
+    };
+    return <g key={muscle} className="body-map-region" role="button" tabIndex={0} aria-label={`${MUSCLE_LABELS[muscle]}, ${numberFormat(value)} kas-set eşdeğeri`} aria-pressed={active} onClick={() => onSelect(active ? null : muscle)} onKeyDown={onKeyDown} style={{ '--region-fill': `rgba(184,243,75,${opacity})`, '--region-stroke': active ? '#ffffff' : '#66805a' } as React.CSSProperties}>{shapes}</g>;
+  };
+  const regions: Record<MuscleGroup, React.ReactNode> = {
+    chest: <><path d="M38 59 Q60 51 82 59 L78 81 Q60 87 42 81Z" /><path d="M37 60 Q28 57 25 67 L33 78 42 75Z" /><path d="M83 60 Q92 57 95 67 L87 78 78 75Z" /></>,
+    back: <><path d="M39 58 Q60 51 81 58 L77 91 Q60 99 43 91Z" /><path d="M41 92 Q60 98 79 92 L76 111 44 111Z" /></>,
+    shoulders: <><ellipse cx="37" cy="57" rx="11" ry="8" /><ellipse cx="83" cy="57" rx="11" ry="8" /></>,
+    biceps: <><path d="M27 68 Q34 65 39 74 L35 96 28 94Z" /><path d="M93 68 Q86 65 81 74 L85 96 92 94Z" /></>,
+    triceps: <><path d="M27 70 Q33 67 37 74 L34 98 28 96Z" /><path d="M93 70 Q87 67 83 74 L86 98 92 96Z" /></>,
+    core: <><path d="M44 83 Q60 88 76 83 L74 113 Q60 119 46 113Z" /></>,
+    quadriceps: <><path d="M43 117 L58 119 56 159 43 160Z" /><path d="M62 119 L77 117 77 160 64 159Z" /></>,
+    hamstrings: <><path d="M43 119 L58 119 56 159 43 160Z" /><path d="M62 119 L77 119 77 160 64 160Z" /></>,
+    glutes: <><path d="M43 96 Q60 102 77 96 L77 119 Q60 126 43 119Z" /></>,
+    calves: <><path d="M44 164 L56 164 54 204 44 202Z" /><path d="M64 164 L76 164 76 202 66 204Z" /></>,
+  };
+  const renderFigure = (side: 'front' | 'back') => {
+    const visible: MuscleGroup[] = side === 'front'
+      ? ['shoulders', 'chest', 'biceps', 'core', 'quadriceps', 'calves']
+      : ['shoulders', 'back', 'triceps', 'core', 'glutes', 'hamstrings', 'calves'];
+    return <div className="body-map-panel" key={side}><b>{side === 'front' ? 'Ön' : 'Arka'}</b><svg viewBox="0 0 120 220" role="group" aria-label={`${side === 'front' ? 'Ön' : 'Arka'} vücut kas haritası`}><circle className="body-base" cx="60" cy="25" r="14" /><path className="body-base" d="M52 40 L68 40 72 49 91 53 99 69 92 101 81 111 79 120 83 160 78 211 64 211 60 169 56 211 42 211 37 160 41 120 39 111 28 101 21 69 29 53 48 49Z" />{visible.map((muscle) => region(muscle, regions[muscle]))}</svg></div>;
+  };
+  return <div className="body-map-wrap"><div className="body-map-figures">{renderFigure('front')}{renderFigure('back')}</div><div className="body-map-legend">{(Object.keys(MUSCLE_LABELS) as MuscleGroup[]).map((muscle) => <button type="button" key={muscle} className={selected === muscle ? 'active' : ''} onClick={() => onSelect(selected === muscle ? null : muscle)}>{MUSCLE_LABELS[muscle]} <b>{numberFormat(values.get(muscle) ?? 0)}</b></button>)}</div><p className="field-help">Rakamlar yaklaşık kas-set eşdeğeridir; kas büyümesi ölçümü değildir.</p></div>;
+}
+
+function TrainingHeatmap({ sessions, rangeStart, weeks }: { sessions: TrainingSession[]; rangeStart: string; weeks: 1 | 4 | 12 }) {
+  const weekdays = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+  const columns = Array.from({ length: weeks }, (_, week) => Array.from({ length: 7 }, (_, day) => shiftLocalDate(rangeStart, week * 7 + day)));
+  const getDaySummary = (date: string) => {
+    const onDay = sessions.filter((session) => session.date === date);
+    const sets = onDay.reduce((sum, session) => sum + (session.exercises ?? []).reduce((exerciseSum, exercise) => exerciseSum + getExerciseSetCount(exercise), 0), 0);
+    return { sessions: onDay.length, sets };
+  };
+  return <section className="card training-heatmap"><div className="section-head compact"><div><p className="eyebrow">RİTİM HARİTASI</p><h2>Antrenman günleri</h2></div><span>🗓️</span></div><div className="heatmap-grid" style={{ '--week-count': weeks } as React.CSSProperties}><span /><div className="heatmap-week-labels">{columns.map((_, index) => <small key={index}>{index + 1}</small>)}</div>{weekdays.map((weekday, dayIndex) => <div className="heatmap-row" key={weekday}><small>{weekday}</small>{columns.map((column) => { const date = column[dayIndex]; const summary = getDaySummary(date); const level = summary.sessions === 0 ? 0 : summary.sets >= 10 ? 3 : summary.sets >= 4 ? 2 : 1; return <span key={date} className={`heat-cell level-${level}`} title={`${date}: ${summary.sessions ? `${summary.sessions} seans, ${summary.sets} kaydedilmiş set` : 'kayıt yok'}`} aria-label={`${date}, ${summary.sessions ? `${summary.sessions} seans, ${summary.sets} set` : 'kayıt yok'}`} />; })}</div>)}</div><div className="heatmap-key"><span>Daha az</span><i className="level-0" /><i className="level-1" /><i className="level-2" /><i className="level-3" /><span>Daha çok kayıt</span></div></section>;
+}
+
+function ExerciseProgressChart({ records, selectedExerciseId, onSelect }: { records: Array<{ session: TrainingSession; exercise: LoggedExercise }>; selectedExerciseId: string; onSelect: (id: string) => void }) {
+  const exercises = Array.from(new Map(records.map(({ exercise }) => [exercise.exerciseId, exercise.name])).entries());
+  const points = records.filter(({ exercise }) => exercise.exerciseId === selectedExerciseId);
+  const hasExternalLoad = points.some(({ exercise }) => getExerciseTonnage(exercise) > 0);
+  const values = points.map(({ exercise }) => hasExternalLoad ? getExerciseTonnage(exercise) : getExerciseTotalReps(exercise));
+  const maximum = Math.max(1, ...values);
+  const minimum = Math.min(0, ...values);
+  const viewWidth = 340;
+  const viewHeight = 150;
+  const padding = { left: 28, right: 12, top: 14, bottom: 30 };
+  const innerWidth = viewWidth - padding.left - padding.right;
+  const innerHeight = viewHeight - padding.top - padding.bottom;
+  const coords = values.map((value, index) => ({
+    x: points.length < 2 ? padding.left + innerWidth / 2 : padding.left + (index / (points.length - 1)) * innerWidth,
+    y: padding.top + (1 - (value - minimum) / Math.max(maximum - minimum, 1)) * innerHeight,
+    value,
+  }));
+  return <section className="card exercise-progress"><div className="section-head compact"><div><p className="eyebrow">HAREKET İLERLEMESİ</p><h2>Zaman içindeki kayıt</h2></div><span>📈</span></div>
+    {exercises.length === 0 ? <p className="empty-copy">Bu dönemde grafik oluşturacak hareket kaydı yok.</p> : <><label className="field-label">Hareket<select value={selectedExerciseId} onChange={(event) => onSelect(event.target.value)}>{exercises.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select></label><p className="field-help">{hasExternalLoad ? 'Dikey değer: dış yük hacmi (kg × tekrar).' : 'Dikey değer: toplam tekrar; bu harekette dış yük girilmemiş.'}</p><svg className="progress-chart" viewBox={`0 0 ${viewWidth} ${viewHeight}`} role="img" aria-label={`${exercises.find(([id]) => id === selectedExerciseId)?.[1] ?? 'Hareket'} ilerleme grafiği`}><line x1={padding.left} y1={padding.top + innerHeight} x2={viewWidth - padding.right} y2={padding.top + innerHeight} /><line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + innerHeight} />{coords.length > 1 && <polyline points={coords.map((point) => `${point.x},${point.y}`).join(' ')} />}{coords.map((point, index) => <g key={`${points[index].session.id}-${index}`}><circle cx={point.x} cy={point.y} r="4" /><title>{shortDate(points[index].session.date)}: {numberFormat(point.value, 0)}</title></g>)}<text x={padding.left} y={viewHeight - 6}>{points[0] ? shortDate(points[0].session.date) : ''}</text><text x={viewWidth - padding.right} y={viewHeight - 6} textAnchor="end">{points.length ? shortDate(points[points.length - 1].session.date) : ''}</text></svg><ol className="progress-values">{points.map(({ session, exercise }, index) => <li key={`${session.id}-${exercise.id}`}>{shortDate(session.date)} <b>{numberFormat(values[index], 0)} {hasExternalLoad ? 'kg·tekrar' : 'tekrar'}</b></li>)}</ol></>}
+  </section>;
+}
+
+function formatMuscleNames(muscles: MuscleGroup[]): string {
+  return muscles.length ? muscles.map((muscle) => MUSCLE_LABELS[muscle]).join(', ') : 'Eşleşme yok';
 }
 
 function ProfileForm(props: { name: string; setName: (value: string) => void; position: string; setPosition: (value: string) => void; foot: 'Sağ' | 'Sol'; setFoot: (value: 'Sağ' | 'Sol') => void; onSave: () => void }) {
@@ -207,7 +449,8 @@ function ProfileForm(props: { name: string; setName: (value: string) => void; po
 
 function SessionRow({ session }: { session: TrainingSession }) {
   const icon: Record<SessionKind, string> = { gym: '🏋️', pitch: '⚽', match: '🏟️', gps: '🏃', timer: '⏱️', recovery: '🧘', rest: '🌙' };
-  return <div className="session-row"><span className="session-icon">{icon[session.kind]}</span><span className="session-info"><b>{session.title}</b><small>{LABELS[session.kind]} · {shortDate(session.date)}{session.minutes ? ` · ${session.minutes} dk` : ''}{session.score ? ` · ${session.score}` : ''}</small></span><span className="session-xp">+{session.xp} XP</span></div>;
+  const exerciseCount = session.exercises?.length ?? 0;
+  return <div className="session-row"><span className="session-icon">{icon[session.kind]}</span><span className="session-info"><b>{session.title}</b><small>{LABELS[session.kind]} · {shortDate(session.date)}{session.minutes ? ` · ${session.minutes} dk` : ''}{session.score ? ` · ${session.score}` : ''}{exerciseCount ? ` · ${exerciseCount} hareket` : ''}</small></span><span className="session-xp">+{session.xp} XP</span></div>;
 }
 
 function StatCard({ icon, value, label }: { icon: string; value: string; label: string }) {
