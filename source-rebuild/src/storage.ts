@@ -37,16 +37,22 @@ export function exportJson(data: AppData): void {
 }
 
 export function exportSessionsCsv(data: AppData): void {
-  const rows = [['Tarih', 'Tür', 'Antrenman', 'Dakika', 'XP', 'Not', 'Hareket', 'Set', 'Tekrar', 'Ağırlık (kg)', 'RPE', 'Dinlenme (sn)'], ...data.sessions.flatMap((session) => {
-    if (!session.exercises?.length) return [[session.date, session.kind, session.title, String(session.minutes), String(session.xp), session.note ?? '', '', '', '', '', '', '']];
-    return session.exercises.flatMap((exercise) => {
-      if (exercise.setDetails?.length) return exercise.setDetails.map((set, index) => [
-        session.date, session.kind, session.title, String(session.minutes), String(session.xp), session.note ?? '',
-        exercise.name, String(index + 1), String(set.reps), String(set.weightKg), String(set.rpe), String(set.restSeconds),
-      ]);
-      return [[session.date, session.kind, session.title, String(session.minutes), String(session.xp), session.note ?? '',
-        exercise.name, String(exercise.sets), String(exercise.reps), String(exercise.weightKg), String(exercise.rpe), '']];
-    });
+  const header = ['Tarih', 'Tür', 'Antrenman', 'Dakika', 'XP', 'Not', 'Hareket', 'Set', 'Tekrar', 'Ağırlık (kg)', 'RPE', 'Dinlenme (sn)', 'Maç dakikası', 'Olay', 'Olay ayrıntısı'];
+  const eventLabels: Record<string, string> = { goal: 'Gol', assist: 'Asist', 'yellow-card': 'Sarı kart', 'red-card': 'Kırmızı kart', substitution: 'Oyuncu değişikliği', note: 'Not' };
+  const rows: string[][] = [header, ...data.sessions.flatMap((session) => {
+    const sessionFields = [session.date, session.kind, session.title, String(session.minutes), String(session.xp), session.note ?? ''];
+    const exerciseRows = !session.exercises?.length
+      ? [[...sessionFields, '', '', '', '', '', '', '', '', '']]
+      : session.exercises.flatMap((exercise) => {
+        if (exercise.setDetails?.length) return exercise.setDetails.map((set, index) => [
+          ...sessionFields, exercise.name, String(index + 1), String(set.reps), String(set.weightKg), String(set.rpe), String(set.restSeconds), '', '', '',
+        ]);
+        return [[...sessionFields, exercise.name, String(exercise.sets), String(exercise.reps), String(exercise.weightKg), String(exercise.rpe), '', '', '', '']];
+      });
+    const eventRows = (session.matchEvents ?? []).map((event) => [
+      ...sessionFields, '', '', '', '', '', '', String(event.minute), eventLabels[event.type] ?? event.type, event.detail ?? '',
+    ]);
+    return [...exerciseRows, ...eventRows];
   })];
   const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(';')).join('\r\n');
   downloadFile(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }), 'hbk-spor-antrenman.csv');
