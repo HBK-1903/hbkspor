@@ -43,6 +43,35 @@ export interface LoggedExercise {
   secondaryMuscles: MuscleGroup[];
 }
 
+export type MatchEventType = 'goal' | 'assist' | 'yellow-card' | 'red-card' | 'substitution' | 'note';
+
+export interface MatchEvent {
+  id: string;
+  minute: number;
+  type: MatchEventType;
+  detail?: string;
+}
+
+export interface WorkoutTemplate {
+  id: string;
+  name: string;
+  kind: 'gym' | 'pitch';
+  minutes: number;
+  note?: string;
+  exercises?: LoggedExercise[];
+}
+
+export interface SkillTestRecord {
+  id: string;
+  testId: string;
+  name: string;
+  category: string;
+  unit: string;
+  lowerIsBetter: boolean;
+  value: number;
+  date: string;
+}
+
 export interface TrainingSession {
   id: string;
   kind: SessionKind;
@@ -52,6 +81,7 @@ export interface TrainingSession {
   date: string;
   note?: string;
   score?: string;
+  matchEvents?: MatchEvent[];
   exercises?: LoggedExercise[];
 }
 
@@ -62,4 +92,6 @@ export interface AppData {
   completedGoals: string[];
   /** Daily check-offs, keyed by local YYYY-MM-DD. */
   goalCompletions?: Record<string, string[]>;
+  workoutTemplates?: WorkoutTemplate[];
+  skillTests?: SkillTestRecord[];
 }

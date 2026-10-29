@@ -2,7 +2,7 @@ import type { AppData } from './types';
 
 const STORAGE_KEY = 'hbk_spor_rebuild_v1';
 
-const EMPTY_DATA: AppData = { profile: null, sessions: [], completedGoals: [], goalCompletions: {} };
+const EMPTY_DATA: AppData = { profile: null, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [] };
 
 export function loadAppData(): AppData {
   try {
@@ -19,6 +19,8 @@ export function loadAppData(): AppData {
       // daily check-offs live in goalCompletions, keyed by local date.
       completedGoals: Array.isArray(parsed.completedGoals) ? parsed.completedGoals : [],
       goalCompletions: completions,
+      workoutTemplates: Array.isArray(parsed.workoutTemplates) ? parsed.workoutTemplates : [],
+      skillTests: Array.isArray(parsed.skillTests) ? parsed.skillTests : [],
     };
   } catch {
     return { ...EMPTY_DATA, sessions: [], completedGoals: [], goalCompletions: {} };

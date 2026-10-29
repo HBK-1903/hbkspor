@@ -16,7 +16,7 @@ import {
   summarizeMuscleWorkload,
   XP_REWARDS,
 } from './training';
-import type { AppData, ExerciseSet, LoggedExercise, MuscleGroup, SessionKind, TrainingSession } from './types';
+import type { AppData, ExerciseSet, LoggedExercise, MatchEvent, MatchEventType, MuscleGroup, SessionKind, SkillTestRecord, TrainingSession, WorkoutTemplate } from './types';
 
 const GOALS = [
   { id: 'water', title: 'Günde en az 3 litre su iç', detail: 'Kramp önleme ve performans' },
@@ -39,6 +39,16 @@ const LABELS: Record<SessionKind, string> = {
   gym: 'Gym', pitch: 'Saha', match: 'Maç', gps: 'GPS koşusu', timer: 'Tempo timer', recovery: 'Toparlanma', rest: 'Dinlenme',
 };
 
+const MATCH_EVENT_LABELS: Record<MatchEventType, string> = { goal: 'Gol', assist: 'Asist', 'yellow-card': 'Sarı kart', 'red-card': 'Kırmızı kart', substitution: 'Oyuncu değişikliği', note: 'Not' };
+const SKILL_TEST_TEMPLATES = [
+  { id: 'sprint-10m', name: '10 m sprint', category: 'Hız', unit: 'sn', lowerIsBetter: true },
+  { id: 'sprint-20m', name: '20 m sprint', category: 'Hız', unit: 'sn', lowerIsBetter: true },
+  { id: 'sprint-30m', name: '30 m sprint', category: 'Hız', unit: 'sn', lowerIsBetter: true },
+  { id: 'agility-505', name: '505 çeviklik testi', category: 'Çeviklik', unit: 'sn', lowerIsBetter: true },
+  { id: 'jump', name: 'Dikey sıçrama', category: 'Güç', unit: 'cm', lowerIsBetter: false },
+  { id: 'cooper', name: '12 dk koşu', category: 'Dayanıklılık', unit: 'm', lowerIsBetter: false },
+] as const;
+
 const shortDate = (value: string) => new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' }).format(new Date(`${value}T12:00:00`));
 const numberFormat = (value: number, maximumFractionDigits = 1) => new Intl.NumberFormat('tr-TR', { maximumFractionDigits }).format(value);
 
@@ -59,7 +69,7 @@ const freshSetDraft = (): SetDraft => ({ reps: '10', weightKg: '0', rpe: '7', re
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadAppData());
   const [tab, setTab] = useState<'home' | 'calendar' | 'stats' | 'settings'>('home');
-  const [statsView, setStatsView] = useState<'overview' | 'muscles'>('overview');
+  const [statsView, setStatsView] = useState<'overview' | 'muscles' | 'tests'>('overview');
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeKind, setActiveKind] = useState<SessionKind | null>(null);
   const [profileName, setProfileName] = useState('');
@@ -70,6 +80,12 @@ export default function App() {
   const [minutes, setMinutes] = useState('45');
   const [note, setNote] = useState('');
   const [score, setScore] = useState('');
+  const [matchEventMinute, setMatchEventMinute] = useState('');
+  const [matchEventType, setMatchEventType] = useState<MatchEventType>('goal');
+  const [matchEventDetail, setMatchEventDetail] = useState('');
+  const [matchEvents, setMatchEvents] = useState<MatchEvent[]>([]);
+  const [templateName, setTemplateName] = useState('');
+  const [restRemaining, setRestRemaining] = useState<number | null>(null);
   const [exerciseDraft, setExerciseDraft] = useState<ExerciseDraft>(freshExerciseDraft);
   const [setDraft, setSetDraft] = useState<SetDraft>(freshSetDraft);
   const [pendingSets, setPendingSets] = useState<ExerciseSet[]>([]);
@@ -77,6 +93,12 @@ export default function App() {
   const [toast, setToast] = useState('');
 
   useEffect(() => saveAppData(data), [data]);
+  useEffect(() => {
+    if (restRemaining === null) return;
+    if (restRemaining <= 0) { setRestRemaining(null); setToast('Dinlenme süresi tamamlandı.'); return; }
+    const timer = window.setTimeout(() => setRestRemaining((remaining) => remaining === null ? null : remaining - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [restRemaining]);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(''), 2600);
@@ -125,6 +147,11 @@ export default function App() {
     setMinutes(kind === 'rest' ? '0' : '45');
     setNote('');
     setScore('');
+    setMatchEvents([]);
+    setMatchEventMinute('');
+    setMatchEventDetail('');
+    setRestRemaining(null);
+    setTemplateName('');
     setExerciseDraft(freshExerciseDraft());
     setSetDraft(freshSetDraft());
     setPendingSets([]);
@@ -145,6 +172,7 @@ export default function App() {
       return;
     }
     setPendingSets((current) => [...current, { id: crypto.randomUUID(), reps, weightKg, rpe, restSeconds }]);
+    if (restSeconds > 0) setRestRemaining(restSeconds);
   };
 
   const addExercise = () => {
@@ -159,6 +187,72 @@ export default function App() {
     setExerciseDraft(freshExerciseDraft());
     setSetDraft(freshSetDraft());
     setPendingSets([]);
+  };
+
+  const cloneExercises = (exercises: LoggedExercise[] = []) => exercises.map((exercise) => ({
+    ...exercise,
+    id: crypto.randomUUID(),
+    setDetails: exercise.setDetails?.map((set) => ({ ...set, id: crypto.randomUUID() })),
+    primaryMuscles: [...exercise.primaryMuscles],
+    secondaryMuscles: [...exercise.secondaryMuscles],
+  }));
+
+  const copyLastGymWorkout = () => {
+    const lastGym = data.sessions.find((session) => session.kind === 'gym' && session.exercises?.length);
+    if (!lastGym) return;
+    setTitle(lastGym.title);
+    setMinutes(String(lastGym.minutes));
+    setNote(lastGym.note ?? '');
+    setLoggedExercises(cloneExercises(lastGym.exercises));
+    setPendingSets([]);
+    setToast('Son gym antrenmanı yeni kayıt için kopyalandı.');
+  };
+
+  const applyTemplate = (template: WorkoutTemplate) => {
+    setTitle(template.name);
+    setMinutes(String(template.minutes));
+    setNote(template.note ?? '');
+    setLoggedExercises(cloneExercises(template.exercises));
+    setPendingSets([]);
+    setToast(`${template.name} şablonu yüklendi.`);
+  };
+
+  const saveWorkoutTemplate = () => {
+    if (activeKind !== 'gym' && activeKind !== 'pitch') return;
+    const name = templateName.trim() || title.trim();
+    if (!name || (data.workoutTemplates?.length ?? 0) >= 20) {
+      setToast('Şablona bir ad ver; en fazla 20 şablon saklanabilir.');
+      return;
+    }
+    const template: WorkoutTemplate = {
+      id: crypto.randomUUID(), name: name.slice(0, 48), kind: activeKind,
+      minutes: Math.max(0, Math.min(600, Math.round(Number(minutes) || 0))),
+      ...(note.trim() ? { note: note.trim().slice(0, 500) } : {}),
+      ...(activeKind === 'gym' && loggedExercises.length ? { exercises: cloneExercises(loggedExercises) } : {}),
+    };
+    setData((current) => ({ ...current, workoutTemplates: [...(current.workoutTemplates ?? []), template] }));
+    setTemplateName('');
+    setToast('Antrenman şablonu kaydedildi.');
+  };
+
+  const deleteWorkoutTemplate = (id: string) => setData((current) => ({ ...current, workoutTemplates: (current.workoutTemplates ?? []).filter((template) => template.id !== id) }));
+
+  const addMatchEvent = () => {
+    const minute = Number(matchEventMinute);
+    if (!Number.isInteger(minute) || minute < 0 || minute > 150 || matchEvents.length >= 50) {
+      setToast('Maç dakikası 0–150 arasında olmalı; en fazla 50 olay eklenebilir.');
+      return;
+    }
+    const event: MatchEvent = { id: crypto.randomUUID(), minute, type: matchEventType, ...(matchEventDetail.trim() ? { detail: matchEventDetail.trim().slice(0, 100) } : {}) };
+    setMatchEvents((current) => [...current, event].sort((a, b) => a.minute - b.minute));
+    setMatchEventMinute('');
+    setMatchEventDetail('');
+  };
+
+  const saveSkillTest = (test: Omit<SkillTestRecord, 'id' | 'date'>) => {
+    const record: SkillTestRecord = { ...test, id: crypto.randomUUID(), date: today };
+    setData((current) => ({ ...current, skillTests: [record, ...(current.skillTests ?? [])] }));
+    setToast(`${test.name} sonucu kaydedildi.`);
   };
 
   const saveSession = () => {
@@ -177,10 +271,12 @@ export default function App() {
       date: today,
       note: note.trim(),
       ...(score.trim() ? { score: score.trim() } : {}),
+      ...(activeKind === 'match' && matchEvents.length ? { matchEvents: [...matchEvents].sort((a, b) => a.minute - b.minute) } : {}),
       ...(activeKind === 'gym' && loggedExercises.length ? { exercises: loggedExercises } : {}),
     };
     setData((current) => ({ ...current, sessions: [session, ...current.sessions] }));
     setActiveKind(null);
+    setRestRemaining(null);
     setToast(activeKind === 'gym' && loggedExercises.length === 0
       ? 'Genel Gym kaydı eklendi. Kas analizi için sonraki kayıtta hareket detayı ekleyebilirsin.'
       : `${LABELS[session.kind]} kaydı eklendi · +${session.xp} XP`);
@@ -202,7 +298,7 @@ export default function App() {
 
   const resetProfile = () => {
     if (!window.confirm('Bu cihazdaki HBK Spor profilini ve kayıtlarını sıfırlamak istiyor musun?')) return;
-    setData({ profile: null, sessions: [], completedGoals: [], goalCompletions: {} });
+    setData({ profile: null, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [] });
     setToast('Profil sıfırlandı.');
   };
 
@@ -241,9 +337,12 @@ export default function App() {
       <div className="segmented-control" role="tablist" aria-label="İstatistik görünümü">
         <button role="tab" aria-selected={statsView === 'overview'} className={statsView === 'overview' ? 'active' : ''} onClick={() => setStatsView('overview')}>Genel bakış</button>
         <button role="tab" aria-selected={statsView === 'muscles'} className={statsView === 'muscles' ? 'active' : ''} onClick={() => setStatsView('muscles')}>Kas yükü</button>
+        <button role="tab" aria-selected={statsView === 'tests'} className={statsView === 'tests' ? 'active' : ''} onClick={() => setStatsView('tests')}>Testler</button>
       </div>
       {statsView === 'muscles' ? (
         <MuscleAnalysis sessions={data.sessions} weekStart={weekStart} onAddGym={() => openAction('gym')} />
+      ) : statsView === 'tests' ? (
+        <PerformanceTests records={data.skillTests ?? []} onSave={saveSkillTest} />
       ) : (
         <>
           <div className="stats-grid"><StatCard icon="⚡" value={String(totalXp)} label="Toplam XP" /><StatCard icon="📅" value={String(data.sessions.length)} label="Toplam seans" /><StatCard icon="🔥" value={String(streak)} label="Seri günü" /><StatCard icon="⏱️" value={`${data.sessions.reduce((sum, session) => sum + session.minutes, 0)}′`} label="Toplam süre" /></div>
@@ -294,7 +393,16 @@ export default function App() {
         <button className={tab === 'settings' ? 'selected' : ''} onClick={() => setTab('settings')}><span>⚙</span><small>Ayarlar</small></button>
       </nav>
       {sheetOpen && <div className="scrim" onMouseDown={() => setSheetOpen(false)}><section className="action-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-handle" /><div className="section-head compact"><div><p className="eyebrow">YENİ KAYIT</p><h2 id="sheet-title">Bugün ne yaptın?</h2></div><button className="close-button" aria-label="Kapat" onClick={() => setSheetOpen(false)}>×</button></div><div className="action-list">{ACTIONS.map((action) => <button key={action.kind} onClick={() => openAction(action.kind)}><span className="action-icon">{action.icon}</span><span><b>{action.label}</b><small>{action.hint}</small></span><span className="route-arrow">›</span></button>)}</div></section></div>}
-      {activeKind && <div className="scrim" onMouseDown={() => setActiveKind(null)}><section className="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-title" onMouseDown={(event) => event.stopPropagation()}><div className="section-head compact"><div><p className="eyebrow">{LABELS[activeKind].toUpperCase()} KAYDI</p><h2 id="session-title">Çalışmanı kaydet</h2></div><button className="close-button" aria-label="Kapat" onClick={() => setActiveKind(null)}>×</button></div><label className="field-label">Çalışma adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={60} /></label>{activeKind === 'match' && <label className="field-label">Skor<input value={score} onChange={(event) => setScore(event.target.value)} placeholder="2-1" /></label>}<label className="field-label">Süre (dakika)<input type="number" min="0" max="600" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>{activeKind === 'gym' && <ExerciseLogger draft={exerciseDraft} setDraft={setExerciseDraft} setDraftValue={setDraft} setSetDraft={setSetDraft} pendingSets={pendingSets} onAddSet={addSet} onRemoveSet={(id) => setPendingSets((current) => current.filter((set) => set.id !== id))} entries={loggedExercises} onAdd={addExercise} onRemove={(id) => setLoggedExercises((current) => current.filter((entry) => entry.id !== id))} />}<label className="field-label">Not<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Nasıl geçti?" /></label><button className="primary-button full-button" onClick={saveSession}>Kaydı tamamla</button></section></div>}
+      {activeKind && <div className="scrim" onMouseDown={() => { setActiveKind(null); setRestRemaining(null); }}><section className="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="section-head compact"><div><p className="eyebrow">{LABELS[activeKind].toUpperCase()} KAYDI</p><h2 id="session-title">Çalışmanı kaydet</h2></div><button className="close-button" aria-label="Kapat" onClick={() => { setActiveKind(null); setRestRemaining(null); }}>×</button></div>
+        <label className="field-label">Çalışma adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={60} /></label>
+        {activeKind === 'match' && <><label className="field-label">Skor<input value={score} onChange={(event) => setScore(event.target.value)} placeholder="2-1" /></label><section className="match-event-editor"><div className="section-head compact"><div><p className="eyebrow">MAÇ RAPORU</p><h2>Olay zaman çizelgesi</h2></div><span>⚽</span></div><p className="field-help">Gol, asist, kart ve değişiklikleri gerçekleştiği dakikayla ekle. Bu alanlar oyuncu notudur; takım istatistiği yerine geçmez.</p><div className="match-event-form"><label className="field-label">Dakika<input aria-label="Olay dakikası" type="number" min="0" max="150" value={matchEventMinute} onChange={(event) => setMatchEventMinute(event.target.value)} placeholder="45" /></label><label className="field-label">Olay<select aria-label="Maç olayı" value={matchEventType} onChange={(event) => setMatchEventType(event.target.value as MatchEventType)}>{Object.entries(MATCH_EVENT_LABELS).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label></div><label className="field-label">Oyuncu / kısa not<input aria-label="Olay ayrıntısı" value={matchEventDetail} onChange={(event) => setMatchEventDetail(event.target.value)} maxLength={100} placeholder="Örn. asist: Deniz" /></label><button type="button" className="secondary-button full-button" onClick={addMatchEvent}>+ Maç olayını ekle</button>{matchEvents.length > 0 && <ol className="match-event-list">{matchEvents.map((event) => <li key={event.id}><time>{event.minute}′</time><span><b>{MATCH_EVENT_LABELS[event.type]}</b>{event.detail && <small>{event.detail}</small>}</span><button type="button" className="remove-exercise" aria-label={`${event.minute}. dakika olayını kaldır`} onClick={() => setMatchEvents((current) => current.filter((item) => item.id !== event.id))}>×</button></li>)}</ol>}</section></>}
+        <label className="field-label">Süre (dakika)<input type="number" min="0" max="600" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>
+        {(activeKind === 'gym' || activeKind === 'pitch') && <section className="template-tools"><div className="section-head compact"><div><p className="eyebrow">HIZLI BAŞLAT</p><h2>Şablonlar</h2></div><span>⚡</span></div>{activeKind === 'gym' && data.sessions.some((session) => session.kind === 'gym' && session.exercises?.length) && <button type="button" className="secondary-button full-button" onClick={copyLastGymWorkout}>Son gym antrenmanını kopyala</button>}{(data.workoutTemplates ?? []).filter((template) => template.kind === activeKind).map((template) => <div className="template-row" key={template.id}><button type="button" className="template-apply" onClick={() => applyTemplate(template)}><b>{template.name}</b><small>{template.minutes} dk · {template.exercises?.length ?? 0} hareket</small></button><button type="button" className="remove-exercise" aria-label={`${template.name} şablonunu sil`} onClick={() => deleteWorkoutTemplate(template.id)}>×</button></div>)}<label className="field-label">Bu kaydı şablon olarak sakla<input value={templateName} onChange={(event) => setTemplateName(event.target.value)} maxLength={48} placeholder={title || 'Şablon adı'} /></label><button type="button" className="secondary-button full-button" onClick={saveWorkoutTemplate}>Şablonu kaydet</button></section>}
+        {activeKind === 'gym' && <ExerciseLogger draft={exerciseDraft} setDraft={setExerciseDraft} setDraftValue={setDraft} setSetDraft={setSetDraft} pendingSets={pendingSets} onAddSet={addSet} onRemoveSet={(id) => setPendingSets((current) => current.filter((set) => set.id !== id))} entries={loggedExercises} onAdd={addExercise} onRemove={(id) => setLoggedExercises((current) => current.filter((entry) => entry.id !== id))} />}
+        {activeKind === 'gym' && restRemaining !== null && <div className="rest-timer" role="status" aria-live="polite"><div><small>SET ARASI DİNLENME</small><strong>{Math.floor(restRemaining / 60)}:{String(restRemaining % 60).padStart(2, '0')}</strong></div><button type="button" className="secondary-button" onClick={() => setRestRemaining(null)}>Durdur</button></div>}
+        <label className="field-label">Not<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Nasıl geçti?" /></label><button className="primary-button full-button" onClick={saveSession}>Kaydı tamamla</button>
+      </section></div>}
       {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
     </div>
   );
@@ -450,7 +558,22 @@ function ProfileForm(props: { name: string; setName: (value: string) => void; po
 function SessionRow({ session }: { session: TrainingSession }) {
   const icon: Record<SessionKind, string> = { gym: '🏋️', pitch: '⚽', match: '🏟️', gps: '🏃', timer: '⏱️', recovery: '🧘', rest: '🌙' };
   const exerciseCount = session.exercises?.length ?? 0;
-  return <div className="session-row"><span className="session-icon">{icon[session.kind]}</span><span className="session-info"><b>{session.title}</b><small>{LABELS[session.kind]} · {shortDate(session.date)}{session.minutes ? ` · ${session.minutes} dk` : ''}{session.score ? ` · ${session.score}` : ''}{exerciseCount ? ` · ${exerciseCount} hareket` : ''}</small></span><span className="session-xp">+{session.xp} XP</span></div>;
+  return <div className="session-row"><span className="session-icon">{icon[session.kind]}</span><span className="session-info"><b>{session.title}</b><small>{LABELS[session.kind]} · {shortDate(session.date)}{session.minutes ? ` · ${session.minutes} dk` : ''}{session.score ? ` · ${session.score}` : ''}{exerciseCount ? ` · ${exerciseCount} hareket` : ''}</small>{session.matchEvents?.length ? <ol className="session-event-timeline">{[...session.matchEvents].sort((a, b) => a.minute - b.minute).map((event) => <li key={event.id}><time>{event.minute}′</time><span>{MATCH_EVENT_LABELS[event.type]}{event.detail ? ` · ${event.detail}` : ''}</span></li>)}</ol> : null}</span><span className="session-xp">+{session.xp} XP</span></div>;
+}
+
+function PerformanceTests({ records, onSave }: { records: SkillTestRecord[]; onSave: (record: Omit<SkillTestRecord, 'id' | 'date'>) => void }) {
+  const [testId, setTestId] = useState<(typeof SKILL_TEST_TEMPLATES)[number]['id']>(SKILL_TEST_TEMPLATES[0].id);
+  const [value, setValue] = useState('');
+  const test = SKILL_TEST_TEMPLATES.find((item) => item.id === testId) ?? SKILL_TEST_TEMPLATES[0];
+  const history = records.filter((record) => record.testId === test.id).sort((a, b) => a.date.localeCompare(b.date));
+  const best = history.reduce<SkillTestRecord | null>((selected, record) => !selected || (test.lowerIsBetter ? record.value < selected.value : record.value > selected.value) ? record : selected, null);
+  const add = () => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0 || numericValue > 100_000) return;
+    onSave({ testId: test.id, name: test.name, category: test.category, unit: test.unit, lowerIsBetter: test.lowerIsBetter, value: numericValue });
+    setValue('');
+  };
+  return <div className="test-workspace"><section className="card"><div className="section-head compact"><div><p className="eyebrow">PERFORMANS TESTLERİ</p><h2>Sonuç ekle</h2></div><span>📈</span></div><p className="field-help">Aynı testin geçmişini kıyasla. Süre testlerinde düşük, mesafe/yükseklik testlerinde yüksek değer kişisel en iyi olarak gösterilir.</p><label className="field-label">Test şablonu<select value={testId} onChange={(event) => setTestId(event.target.value as typeof testId)}>{SKILL_TEST_TEMPLATES.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.category}</option>)}</select></label><label className="field-label">Sonuç ({test.unit})<input aria-label={`Sonuç (${test.unit})`} type="number" min="0.01" max="100000" step="any" value={value} onChange={(event) => setValue(event.target.value)} placeholder={test.unit === 'sn' ? 'Örn. 3.42' : 'Sonucu gir'} /></label><button className="primary-button full-button" type="button" onClick={add} disabled={!value || !Number.isFinite(Number(value)) || Number(value) <= 0}>Bugünkü sonucu kaydet</button></section><section className="card test-history"><div className="section-head compact"><div><p className="eyebrow">{test.category.toUpperCase()} · TREND</p><h2>{test.name}</h2></div><span>🎯</span></div><div className="test-best"><span>Kişisel en iyi</span><b>{best ? `${numberFormat(best.value, 2)} ${test.unit}` : '—'}</b><small>{best ? shortDate(best.date) : 'Henüz sonuç yok'}</small></div>{history.length ? <ol className="test-history-list">{[...history].reverse().slice(0, 12).map((record) => <li key={record.id}><time>{shortDate(record.date)}</time><b>{numberFormat(record.value, 2)} {record.unit}</b>{record.id === best?.id && <span>En iyi</span>}</li>)}</ol> : <p className="empty-copy">İlk test sonucunu eklediğinde geçmiş burada birikir.</p>}</section><p className="analysis-disclaimer">Bu kayıtlar yalnızca senin girdiğin sonuçları gösterir. Test koşulları ve ölçüm yöntemi değişebileceğinden, farklı protokollerdeki sonuçlar doğrudan kıyaslanmamalıdır.</p></div>;
 }
 
 function StatCard({ icon, value, label }: { icon: string; value: string; label: string }) {
