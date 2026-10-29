@@ -29,6 +29,10 @@ import type { PendingMatchMedia } from './MatchMedia';
 import { NotificationSettings } from './NotificationSettings';
 import { getDueNotifications } from './notification-schedule';
 import { CoachReport, SeasonJournal } from './report-journal';
+import { expandWeeklyPlan } from './weekly-plan';
+import type { WeeklyPlanDraft } from './weekly-plan';
+import { buildPushSchedule } from './push-schedule';
+import { disableWebPush, enableWebPush, isPushBackendConfigured, isPushLocallyEnabled, syncWebPushSchedule } from './push-client';
 
 import { VoiceNoteRecorder } from './VoiceNoteRecorder';
 import { VoiceNotePlayback } from './VoiceNotePlayback';
@@ -110,6 +114,8 @@ export default function App() {
   const [voiceRecording, setVoiceRecording] = useState(false);
   const [pendingMatchMedia, setPendingMatchMedia] = useState<PendingMatchMedia[]>([]);
   const [savingSession, setSavingSession] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(() => isPushLocallyEnabled());
+  const [pushError, setPushError] = useState('');
   const [toast, setToast] = useState('');
   const notificationInFlight = useRef(new Set<string>());
 
@@ -148,6 +154,12 @@ export default function App() {
     const timer = window.setInterval(() => { void deliverDue(); }, 30_000);
     return () => window.clearInterval(timer);
   }, [data.notificationPreferences, data.notificationSentKeys, data.weeklyPlan, data.sessions, data.gpsActivities, data.demoMode]);
+  useEffect(() => {
+    if (!pushEnabled || !isPushBackendConfigured()) return;
+    void syncWebPushSchedule(buildPushSchedule(data)).then(() => setPushError('')).catch((reason: unknown) => {
+      setPushError(reason instanceof Error ? reason.message : 'Push programı sunucuya eşitlenemedi.');
+    });
+  }, [pushEnabled, data.notificationPreferences, data.weeklyPlan, data.sessions, data.gpsActivities, data.demoMode, data.notificationSentKeys]);
 
   const today = localDateKey();
   const todayGoals = data.goalCompletions?.[today] ?? [];
@@ -336,12 +348,18 @@ export default function App() {
     setToast('Hareket seçildi; setlerini Gym kaydına ekle.');
   };
 
-  const addPlanItem = (item: Omit<WeeklyPlanItem, 'id'>) => {
-    setData((current) => ({ ...current, weeklyPlan: [...(current.weeklyPlan ?? []), { ...item, id: crypto.randomUUID() }] }));
-    setToast('Çalışma haftalık plana eklendi.');
+  const addPlanItem = (item: WeeklyPlanDraft) => {
+    const currentCount = data.weeklyPlan?.length ?? 0;
+    if (currentCount + item.repeatCount > 100) { setToast('Haftalık planda en fazla 100 kayıt saklanabilir.'); return; }
+    const occurrences = expandWeeklyPlan(item);
+    setData((current) => ({ ...current, weeklyPlan: [...(current.weeklyPlan ?? []), ...occurrences] }));
+    setToast(item.repeatCount === 1 ? 'Çalışma haftalık plana eklendi.' : `${item.repeatCount} haftalık tekrar planlandı.`);
   };
 
-  const deletePlanItem = (id: string) => setData((current) => ({ ...current, weeklyPlan: (current.weeklyPlan ?? []).filter((item) => item.id !== id) }));
+  const deletePlanItem = (id: string, deleteSeries = false) => {
+    const selected = data.weeklyPlan?.find((item) => item.id === id);
+    setData((current) => ({ ...current, weeklyPlan: (current.weeklyPlan ?? []).filter((item) => deleteSeries && selected?.recurrenceId ? item.recurrenceId !== selected.recurrenceId : item.id !== id) }));
+  };
 
   const startPlanItem = (item: WeeklyPlanItem) => {
     openAction(item.kind);
@@ -438,10 +456,15 @@ export default function App() {
   };
 
   const resetProfile = async () => {
-    if (!window.confirm('Bu cihazdaki HBK Spor profilini, kayıtlarını, sesli notlarını ve maç albümünü sıfırlamak istiyor musun?')) return;
+    if (!window.confirm('Bu cihazdaki HBK Spor profilini, kayıtlarını, sesli notlarını, maç albümünü ve push aboneliğini sıfırlamak istiyor musun?')) return;
     let cleanupWarning = '';
     try { await Promise.all([clearVoiceNotes(), clearMatchMedia()]); }
     catch { cleanupWarning = ' Medya deposu tarayıcı tarafından kilitli; tekrar deneyebilirsin.'; }
+    if (pushEnabled) {
+      try { await disableWebPush(); }
+      catch { cleanupWarning += ' Push sunucusu erişilemedi; cihaz aboneliği kaldırıldı, kalan kayıt sunucuya ulaşılamadı.'; }
+      finally { setPushEnabled(false); }
+    }
     setData({ profile: null, demoMode: false, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [], weeklyPlan: [], customGoals: [], customDrills: [], playerCard: undefined });
     setToast(`Profil ve kayıtlar sıfırlandı.${cleanupWarning}`);
   };
@@ -521,9 +544,22 @@ export default function App() {
     } catch { setToast('Bildirim izni bu sayfada kullanılamıyor. HTTPS bağlantısını dene.'); }
   };
   const notificationPermission: NotificationPermission | 'unsupported' = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+  const pushState: 'unconfigured' | 'off' | 'on' = !isPushBackendConfigured() ? 'unconfigured' : pushEnabled ? 'on' : 'off';
+  const enablePushNotifications = async () => {
+    try {
+      await enableWebPush();
+      setPushEnabled(true);
+      setPushError('');
+    } catch (reason) { setPushError(reason instanceof Error ? reason.message : 'Push aboneliği kurulamadı.'); }
+  };
+  const disablePushNotifications = async () => {
+    try { await disableWebPush(); setPushError(''); }
+    catch (reason) { setPushError(reason instanceof Error ? reason.message : 'Push aboneliği kaldırılamadı.'); }
+    finally { setPushEnabled(false); }
+  };
 
   const renderSettings = () => (
-    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><PlayerCardEditor profile={data.profile!} appearance={data.playerCard} stats={{ sessions: data.sessions.length, xp: totalXp, level }} onSave={saveCardAppearance} /><NotificationSettings preferences={data.notificationPreferences ?? DEFAULT_NOTIFICATION_PREFERENCES} permission={notificationPermission} onEnable={enableNotifications} onUpdate={(notificationPreferences) => setData((current) => ({ ...current, notificationPreferences }))} /><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>Yedekle ve dışa aktar</h2><p className="empty-copy">Kayıtların yalnızca bu cihazda saklanır. İstediğinde JSON veya CSV yedeği alabilirsin.</p><p className="field-help">Sesli notlar ve maç albümü bu cihazdaki ayrı yerel depoda kalır; JSON / CSV dosyasına eklenmez.</p><div className="settings-actions"><button className="primary-button" onClick={() => exportJson(data)}>JSON yedeği al</button><button className="secondary-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></div></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.2.0</p></>
+    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><PlayerCardEditor profile={data.profile!} appearance={data.playerCard} stats={{ sessions: data.sessions.length, xp: totalXp, level }} onSave={saveCardAppearance} /><NotificationSettings preferences={data.notificationPreferences ?? DEFAULT_NOTIFICATION_PREFERENCES} permission={notificationPermission} onEnable={enableNotifications} onUpdate={(notificationPreferences) => setData((current) => ({ ...current, notificationPreferences }))} pushState={pushState} pushError={pushError} onEnablePush={enablePushNotifications} onDisablePush={disablePushNotifications} /><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>Yedekle ve dışa aktar</h2><p className="empty-copy">Kayıtların yalnızca bu cihazda saklanır. İstediğinde JSON veya CSV yedeği alabilirsin.</p><p className="field-help">Sesli notlar ve maç albümü bu cihazdaki ayrı yerel depoda kalır; JSON / CSV dosyasına eklenmez.</p><div className="settings-actions"><button className="primary-button" onClick={() => exportJson(data)}>JSON yedeği al</button><button className="secondary-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></div></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.2.0</p></>
   );
 
   if (!data.profile) {

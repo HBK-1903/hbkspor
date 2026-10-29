@@ -3,6 +3,7 @@ import type { ChangeEvent, CSSProperties, MouseEvent } from 'react';
 import { getAchievements } from './achievements';
 import { getCustomGoalProgress, GOAL_METRIC_LABELS, GOAL_PERIOD_LABELS } from './goals';
 import { getWeekComparison } from './weekly-comparison';
+import type { WeeklyPlanDraft, RepeatCount } from './weekly-plan';
 import { parseGpx, MAX_GPX_BYTES, formatDuration } from './gps';
 import { DRILL_LIBRARY, type Drill, type DrillCategory } from './drills';
 import { EXERCISE_LIBRARY, getWeekStartKey, localDateKey, MUSCLE_LABELS, shiftLocalDate } from './training';
@@ -238,8 +239,8 @@ const PLAN_KIND_ICONS: Record<TrainingSession['kind'], string> = { gym: '🏋️
 
 export function WeeklyPlanner({ items, onAdd, onDelete, onStart }: {
   items: WeeklyPlanItem[];
-  onAdd: (item: Omit<WeeklyPlanItem, 'id'>) => void;
-  onDelete: (id: string) => void;
+  onAdd: (item: WeeklyPlanDraft) => void;
+  onDelete: (id: string, deleteSeries?: boolean) => void;
   onStart: (item: WeeklyPlanItem) => void;
 }) {
   const [weekOffset, setWeekOffset] = useState(0);
@@ -247,6 +248,7 @@ export function WeeklyPlanner({ items, onAdd, onDelete, onStart }: {
   const [kind, setKind] = useState<TrainingSession['kind']>('pitch');
   const [minutes, setMinutes] = useState('45');
   const [time, setTime] = useState('17:00');
+  const [repeatCount, setRepeatCount] = useState<RepeatCount>(1);
   const [date, setDate] = useState(localDateKey());
   const [error, setError] = useState('');
   const baseWeek = getWeekStartKey();
@@ -260,11 +262,11 @@ export function WeeklyPlanner({ items, onAdd, onDelete, onStart }: {
   };
   const add = () => {
     const parsedMinutes = Number(minutes);
-    if (!title.trim() || !dates.includes(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || !Number.isInteger(parsedMinutes) || parsedMinutes < 0 || parsedMinutes > 600 || items.length >= 100) {
-      setError('Başlık, saat ve bu haftadan bir gün seç; süre 0–600 dakika olmalı (en fazla 100 plan).');
+    if (!title.trim() || !dates.includes(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || !Number.isInteger(parsedMinutes) || parsedMinutes < 0 || parsedMinutes > 600 || items.length + repeatCount > 100) {
+      setError('Başlık, saat ve bu haftadan bir gün seç; süre 0–600 dakika olmalı (en fazla 100 plan kaydı).');
       return;
     }
-    onAdd({ date, time, kind, title: title.trim().slice(0, 60), minutes: parsedMinutes });
+    onAdd({ date, time, kind, title: title.trim().slice(0, 60), minutes: parsedMinutes, repeatCount });
     setTitle(''); setError('');
   };
   return <div className="visual-workspace">
@@ -272,10 +274,10 @@ export function WeeklyPlanner({ items, onAdd, onDelete, onStart }: {
     <section className="card weekly-planner"><div className="planner-heading"><button type="button" className="secondary-button" aria-label="Önceki hafta" onClick={() => changeWeek(-1)}>‹</button><div><p className="eyebrow">HAFTA PLANI</p><h2>{shortDate(weekStart)} – {shortDate(dates[6])}</h2></div><button type="button" className="secondary-button" aria-label="Sonraki hafta" onClick={() => changeWeek(1)}>›</button></div>
       <div className="planner-week" role="list" aria-label="Haftanın planı">{dates.map((day) => {
         const dayItems = visibleItems.filter((item) => item.date === day);
-        return <section className={`planner-day${day === localDateKey() ? ' is-today' : ''}`} key={day} role="listitem"><div className="planner-day__head"><b>{new Intl.DateTimeFormat('tr-TR', { weekday: 'short' }).format(new Date(`${day}T12:00:00`))}</b><time>{new Intl.DateTimeFormat('tr-TR', { day: 'numeric' }).format(new Date(`${day}T12:00:00`))}</time></div>{dayItems.length ? dayItems.map((item) => <article className={`plan-item${item.completedSessionId ? ' is-complete' : ''}`} key={item.id}><span>{PLAN_KIND_ICONS[item.kind]}</span><b>{item.title}</b><small>{item.time ?? '17:00'} · {item.minutes} dk · {PLAN_KIND_LABELS[item.kind]}</small>{item.completedSessionId ? <small className="plan-done">✓ Kayda dönüştü</small> : <button type="button" className="plan-start" onClick={() => onStart(item)}>Kayda dönüştür →</button>}{!item.completedSessionId && <button type="button" className="plan-delete" aria-label={`${item.title} planını sil`} onClick={() => onDelete(item.id)}>Sil</button>}</article>) : <span className="planner-day__empty">Boş</span>}</section>;
+        return <section className={`planner-day${day === localDateKey() ? ' is-today' : ''}`} key={day} role="listitem"><div className="planner-day__head"><b>{new Intl.DateTimeFormat('tr-TR', { weekday: 'short' }).format(new Date(`${day}T12:00:00`))}</b><time>{new Intl.DateTimeFormat('tr-TR', { day: 'numeric' }).format(new Date(`${day}T12:00:00`))}</time></div>{dayItems.length ? dayItems.map((item) => <article className={`plan-item${item.completedSessionId ? ' is-complete' : ''}`} key={item.id}><span>{PLAN_KIND_ICONS[item.kind]}</span><b>{item.title}</b><small>{item.time ?? '17:00'} · {item.minutes} dk · {PLAN_KIND_LABELS[item.kind]}</small>{item.recurrenceId && <small className="plan-repeat">↻ Haftalık tekrar</small>}{item.completedSessionId ? <small className="plan-done">✓ Kayda dönüştü</small> : <button type="button" className="plan-start" onClick={() => onStart(item)}>Kayda dönüştür →</button>}<button type="button" className="plan-delete" aria-label={`${item.title} tekrarını sil`} onClick={() => onDelete(item.id)}>Bu tekrar</button>{item.recurrenceId && <button type="button" className="plan-delete plan-delete--series" aria-label={`${item.title} haftalık serisini sil`} onClick={() => onDelete(item.id, true)}>Tüm seri</button>}</article>) : <span className="planner-day__empty">Boş</span>}</section>;
       })}</div>
     </section>
-    <section className="card plan-form"><div className="section-head compact"><div><p className="eyebrow">YENİ PLAN</p><h2>Bir çalışma ekle</h2></div><span>＋</span></div><label className="field-label">Çalışma adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={60} placeholder="Örn. Teknik pas çalışması" /></label><div className="form-grid planner-form-grid"><label className="field-label">Gün<input type="date" value={date} min={dates[0]} max={dates[6]} onChange={(event) => setDate(event.target.value)} /></label><label className="field-label">Saat<input type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label><label className="field-label">Tür<select value={kind} onChange={(event) => setKind(event.target.value as TrainingSession['kind'])}>{Object.entries(PLAN_KIND_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div><label className="field-label">Planlanan süre (dakika)<input type="number" min="0" max="600" step="1" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>{error && <p className="gps-import-error" role="alert">{error}</p>}<button type="button" className="primary-button full-button" onClick={add}>Haftaya ekle</button></section>
+    <section className="card plan-form"><div className="section-head compact"><div><p className="eyebrow">YENİ PLAN</p><h2>Bir çalışma ekle</h2></div><span>＋</span></div><label className="field-label">Çalışma adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={60} placeholder="Örn. Teknik pas çalışması" /></label><div className="form-grid planner-form-grid"><label className="field-label">Gün<input type="date" value={date} min={dates[0]} max={dates[6]} onChange={(event) => setDate(event.target.value)} /></label><label className="field-label">Saat<input type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label><label className="field-label">Tür<select value={kind} onChange={(event) => setKind(event.target.value as TrainingSession['kind'])}>{Object.entries(PLAN_KIND_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div><label className="field-label">Planlanan süre (dakika)<input type="number" min="0" max="600" step="1" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label><label className="field-label">Tekrar<select value={repeatCount} onChange={(event) => setRepeatCount(Number(event.target.value) as RepeatCount)}><option value={1}>Yalnızca bu hafta</option><option value={4}>Her hafta · 4 tekrar</option><option value={8}>Her hafta · 8 tekrar</option><option value={12}>Her hafta · 12 tekrar</option></select></label>{error && <p className="gps-import-error" role="alert">{error}</p>}<button type="button" className="primary-button full-button" onClick={add}>Haftaya ekle</button></section>
   </div>;
 }
 
