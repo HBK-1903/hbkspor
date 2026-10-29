@@ -4,9 +4,9 @@ import { addLocalDays, currentWeekStart, formatDay, localDayKey } from './dates'
 import type { AnalyticsData, GpsActivity, LegacyMatch, LegacyPlan, LegacyWorkout } from './types';
 import './extended-analytics.css';
 
-export type AnalyticsSection = 'overview' | 'muscles' | 'matches' | 'gps' | 'recovery' | 'tests' | 'records';
+export type AnalyticsSection = 'overview' | 'muscles' | 'movements' | 'matches' | 'gps' | 'recovery' | 'tests' | 'records';
 type AnalyticsRange = 4 | 8 | 12;
-type NonMuscleSection = Exclude<AnalyticsSection, 'muscles'>;
+type NonMuscleSection = Exclude<AnalyticsSection, 'muscles' | 'movements'>;
 
 interface Props {
   data: AnalyticsData;

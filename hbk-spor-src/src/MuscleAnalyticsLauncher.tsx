@@ -5,6 +5,7 @@ import { currentWeekStart, addLocalDays, formatDay, localDayKey } from './dates'
 import { loadSetEffortMetadata, readLegacyTrainingData, saveSetEffortMetadata, setMetadataKey } from './db';
 import { loadImportedGpsActivities, parseGpsDeviceFile, readSupplementalAnalytics, saveImportedGpsActivities, MAX_GPX_BYTES } from './analytics-data';
 import ExtendedAnalyticsView, { type AnalyticsSection } from './ExtendedAnalyticsView';
+import MovementLibrary from './MovementLibrary';
 import {
   flattenGymWorkouts,
   MUSCLE_LABELS,
@@ -242,6 +243,7 @@ function AnalyticsWorkspace({ data, effort, weeks, setWeeks, section, setSection
   const tabs: Array<{ id: AnalyticsSection; label: string; icon: string }> = [
     { id: 'overview', label: 'Özet', icon: '◫' },
     { id: 'muscles', label: 'Kas', icon: '✳' },
+    { id: 'movements', label: 'Hareketler', icon: '↔' },
     { id: 'matches', label: 'Maç', icon: '⚽' },
     { id: 'gps', label: 'GPS', icon: '⌁' },
     { id: 'recovery', label: 'Form', icon: '◉' },
@@ -252,7 +254,9 @@ function AnalyticsWorkspace({ data, effort, weeks, setWeeks, section, setSection
     <div className="analytics-tabs" role="tablist" aria-label="Performans analizleri">{tabs.map((tab) => <button type="button" role="tab" key={tab.id} aria-selected={section === tab.id} className={section === tab.id ? 'active' : ''} onClick={() => setSection(tab.id)}><span aria-hidden="true">{tab.icon}</span>{tab.label}</button>)}</div>
     {section === 'muscles'
       ? <MuscleReport data={data} effort={effort} weeks={weeks} setWeeks={setWeeks} selectedMuscle={selectedMuscle} setSelectedMuscle={setSelectedMuscle} selectedExercise={selectedExercise} setSelectedExercise={setSelectedExercise} onEffortChange={onEffortChange} />
-      : <ExtendedAnalyticsView data={data} section={section} weeks={weeks} setWeeks={setWeeks} onGpsImport={onGpsImport} onDeleteGps={onDeleteGps} />}
+      : section === 'movements'
+        ? <MovementLibrary exercises={data.catalog} workouts={data.workouts} />
+        : <ExtendedAnalyticsView data={data} section={section} weeks={weeks} setWeeks={setWeeks} onGpsImport={onGpsImport} onDeleteGps={onDeleteGps} />}
   </div>;
 }
 
