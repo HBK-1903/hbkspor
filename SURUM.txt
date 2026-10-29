@@ -1,0 +1,4 @@
+HBK Spor — kaynak proje build
+Ana bundle : assets/index-CGAXHvPf.js
+SW cache   : hbk-spor-cache-v3-CGAXHvPf
+Tarih      : 2026-10-26T22:37:41.325Z
