@@ -1,0 +1,19 @@
+{
+  "name": "HBK Spor | Futbol Performans & Antrenman",
+  "short_name": "HBK Spor",
+  "description": "Futbolcular için antrenman, maç ve gelişim günlüğü.",
+  "id": "hbkspor-futbol-takip-pwa",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#081311",
+  "theme_color": "#0E1E1A",
+  "orientation": "portrait-primary",
+  "categories": ["sports", "fitness", "health"],
+  "lang": "tr",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
