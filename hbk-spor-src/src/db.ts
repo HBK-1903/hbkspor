@@ -1,4 +1,4 @@
-import type { ExerciseDefinition, LegacyWorkout, SetEffortStore } from './types';
+import type { ExerciseDefinition, LegacyMatch, LegacyPlan, LegacyPlayerProfile, LegacyWorkout, SetEffortStore } from './types';
 
 export const LEGACY_DB_NAME = 'hbk_spor_performans_db';
 export const LEGACY_DB_VERSION = 2;
@@ -24,6 +24,14 @@ async function openExistingDatabase(): Promise<IDBDatabase | null> {
   });
 }
 
+function isDemoRecord(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as { id?: unknown; title?: unknown };
+  const id = typeof record.id === 'string' ? record.id : '';
+  const title = typeof record.title === 'string' ? record.title : '';
+  return /^demo[-_]/i.test(id) || /^demo(?:\s|$)/i.test(title);
+}
+
 function readAll<T>(database: IDBDatabase, storeName: string): Promise<T[]> {
   return new Promise((resolve, reject) => {
     if (!database.objectStoreNames.contains(storeName)) {
@@ -32,24 +40,38 @@ function readAll<T>(database: IDBDatabase, storeName: string): Promise<T[]> {
     }
     const transaction = database.transaction(storeName, 'readonly');
     const request = transaction.objectStore(storeName).getAll();
-    request.onsuccess = () => resolve(request.result as T[]);
+    request.onsuccess = () => resolve((request.result as T[]).filter((row) => !isDemoRecord(row)));
     request.onerror = () => reject(request.error ?? new Error(`${storeName} okunamadı.`));
     transaction.onabort = () => reject(transaction.error ?? new Error(`${storeName} okuması iptal edildi.`));
   });
 }
 
-export async function readLegacyTrainingData(): Promise<{ workouts: LegacyWorkout[]; exercises: ExerciseDefinition[]; dbVersion: number }> {
+export interface LegacyTrainingSnapshot {
+  workouts: LegacyWorkout[];
+  exercises: ExerciseDefinition[];
+  matches: LegacyMatch[];
+  weeklyPlan: LegacyPlan[];
+  customPlans: LegacyPlan[];
+  profile?: LegacyPlayerProfile;
+  dbVersion: number;
+}
+
+export async function readLegacyTrainingData(): Promise<LegacyTrainingSnapshot> {
   const database = await openExistingDatabase();
-  if (!database) return { workouts: [], exercises: [], dbVersion: 0 };
+  if (!database) return { workouts: [], exercises: [], matches: [], weeklyPlan: [], customPlans: [], dbVersion: 0 };
   try {
     if (database.version < LEGACY_DB_VERSION) {
-      return { workouts: [], exercises: [], dbVersion: database.version };
+      return { workouts: [], exercises: [], matches: [], weeklyPlan: [], customPlans: [], dbVersion: database.version };
     }
-    const [workouts, exercises] = await Promise.all([
+    const [workouts, exercises, matches, weeklyPlan, customPlans, profiles] = await Promise.all([
       readAll<LegacyWorkout>(database, 'workouts'),
       readAll<ExerciseDefinition>(database, 'exercises'),
+      readAll<LegacyMatch>(database, 'matches'),
+      readAll<LegacyPlan>(database, 'weeklyPlan'),
+      readAll<LegacyPlan>(database, 'customPlans'),
+      readAll<{ id: string; profile?: LegacyPlayerProfile }>(database, 'playerProfile'),
     ]);
-    return { workouts, exercises, dbVersion: database.version };
+    return { workouts, exercises, matches, weeklyPlan, customPlans, profile: profiles.find((row) => row.id === 'current')?.profile, dbVersion: database.version };
   } finally {
     database.close();
   }

@@ -41,6 +41,105 @@ export interface LegacyWorkout {
   [key: string]: unknown;
 }
 
+export interface LegacyMatch {
+  id: string;
+  date: string;
+  opponent?: string;
+  scoreOur?: number;
+  scoreOpponent?: number;
+  isHome?: boolean;
+  minutesPlayed?: number;
+  goals?: number;
+  assists?: number;
+  rating?: number;
+  isMvp?: boolean;
+  [key: string]: unknown;
+}
+
+export interface LegacyPlan {
+  date?: string;
+  dayOfWeek?: number;
+  type?: string;
+  title?: string;
+  [key: string]: unknown;
+}
+
+export interface LegacyPlayerProfile {
+  name?: string;
+  nickname?: string;
+  position?: string;
+  [key: string]: unknown;
+}
+
+export interface GpsRoutePoint {
+  lat: number;
+  lon: number;
+}
+
+export interface GpsSplit {
+  number: number;
+  distanceKm: number;
+  movingSeconds: number;
+  paceSecondsPerKm: number;
+}
+
+export interface GpsActivity {
+  id: string;
+  date: string;
+  distanceKm: number;
+  elapsedSeconds: number;
+  movingSeconds: number;
+  avgSpeedKmh?: number;
+  maxSpeedKmh?: number;
+  elevationGainM?: number;
+  avgHeartRate?: number;
+  maxHeartRate?: number;
+  avgCadence?: number;
+  maxCadence?: number;
+  splits?: GpsSplit[];
+  route: GpsRoutePoint[];
+  source: 'app' | 'gpx' | 'tcx' | 'fit';
+  fileName?: string;
+  importedAt?: string;
+}
+
+export interface SkillTestResult {
+  date: string;
+  value: number;
+}
+
+export interface SkillTestRecord {
+  id: string;
+  name: string;
+  unit: string;
+  category?: string;
+  target?: number;
+  history: SkillTestResult[];
+}
+
+export interface WellnessPoint {
+  workoutId: string;
+  date: string;
+  title: string;
+  sleep: number;
+  energy: number;
+  soreness: number;
+  stress: number;
+}
+
+export interface AnalyticsData {
+  workouts: LegacyWorkout[];
+  catalog: ExerciseDefinition[];
+  matches: LegacyMatch[];
+  weeklyPlan: LegacyPlan[];
+  customPlans: LegacyPlan[];
+  profile?: LegacyPlayerProfile;
+  gpsActivities: GpsActivity[];
+  skillTests: SkillTestRecord[];
+  wellness: WellnessPoint[];
+  dbVersion: number;
+}
+
 export interface SetEffortMetadata {
   rpe?: number;
   restSeconds?: number;

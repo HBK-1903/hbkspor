@@ -35,17 +35,19 @@
 | **Analiz** | Antrenman yükü, form, maç, gelişim ve tüm kayıtların ayrıntıları |
 | **Oyuncu profili** | Oyuncu kartı, kariyer bilgileri, rozetler, çıkartma albümü ve arkadaş kartları |
 | **Veri yönetimi** | JSON yedekleme, CSV dışa aktarma, hareket ve şablon yöneticileri |
-| **Kas analizi** | Kas grupları, etkin set tahminleri, set ayrıntıları, RPE/dinlenme, dönem özeti ve ilerleme grafiği |
+| **Performans analizi** | 4/8/12 haftalık dönem kıyası, yük grafiği ve 12 haftalık takvim; kas, maç/olay, GPS içe aktarma, öz bildirimli toparlanma, test eğilimleri, kişisel rekorlar, planlanan–gerçekleşen karşılaştırması ve CSV raporu |
 
 Arayüz telefonda antrenman sırasında kullanılabilecek şekilde tasarlanmıştır; PWA olarak ana ekrana eklenebilir. Uygulama çevrimdışı açılmayı destekler. PWA önbelleği uygulama dosyalarını saklar; kullanıcı verilerinin yedeğini ayrıca almanı öneririz.
 
 ## Verin senin. Nokta.
 
-Antrenman kayıtları bu tarayıcıdaki **IndexedDB** ve cihaz içi depolama alanlarında tutulur. Kas analizi modülü mevcut HBK Spor veritabanını bulmadan açmaz; bulduğunda da antrenman kayıtlarını **salt okunur** şekilde kullanır. Var olan veritabanı sürümünü yükseltmez, kayıtlarını değiştirmez veya sıfırlamaz.
+Antrenman, maç, plan ve profil kayıtları bu tarayıcıdaki **IndexedDB**’den salt okunur alınır; veritabanı yükseltilmez veya değiştirilmez. GPS koşuları ve test sonuçları uygulamanın localStorage kayıtlarından; toparlanma check-in’leri mevcut antrenmanlardaki wellness alanından okunur. Demo kimlikli örnek kayıtlar gerçek performans özetine katılmaz.
 
-Set bazında girilen yeni **RPE** ve **dinlenme** bilgileri ayrı bir yerel anahtarda saklanır. Ana uygulamanın yedeğinden ayrı oldukları için bu ek bilgileri kas analizi penceresindeki **Set yedeğini indir / içe aktar** kontrolleriyle taşı.
+Set bazında eklenen **RPE/dinlenme** ile içe aktarılan GPS dosyalarının özet ve rota noktaları cihazda ayrı localStorage anahtarlarında tutulur. Analiz penceresindeki **Analiz yedeğini indir / içe aktar** kontrolleri bu ek verileri taşır; ana uygulama antrenman/maç yedeğinin yerini almaz.
 
-> **RPE bir öz bildirimdir.** Kas grubu eşleştirmeleri ve ana/yardımcı kas set katsayıları yaklaşık planlama göstergeleridir; ölçülmüş yorgunluk, sakatlık riski, sağlık değerlendirmesi veya kas gelişimi vaadi değildir.
+GPS sekmesi Strava veya cihazlardan `.gpx`, `.tcx` ve `.fit` dosyalarını alır. Rota, tempo, 1 km turları, mesafe, hareket süresi ve dosyada varsa yükseklik, nabız/kadans gösterilir. Ham dosya sunucuya gönderilmez; dışarıdan alınan rotalar bu cihazda kalır ve silinebilir. Strava OAuth/API otomatik bağlantısı bu sürümde yoktur; ayrıntılar [`GPS ve analiz notlarında`](./hbk-spor-src/docs/performance-analytics.md).
+
+> **RPE bir öz bildirimdir.** RPE × süre ölçülmüş yorgunluk/sakatlık riski değildir; kas grubu eşleştirmeleri ve etkin set katsayıları da yaklaşık planlama göstergeleridir. GPS hesaplamaları Strava/cihaz değerlerinden farklı olabilir.
 
 ## Hemen dene
 
@@ -123,4 +125,4 @@ Hata bulduysan veya geliştirme fikrin varsa bir issue aç; değişiklik gönder
 
 ## Lisans
 
-Bu depoda henüz bir lisans dosyası bulunmuyor. Açık kaynak lisansı eklenene kadar kodun yeniden kullanım ve dağıtım izinlerinin ayrıca netleştirilmesi gerekir.
+Özgün kaynak kodu ve proje dokümantasyonu, [`LICENSE`](./LICENSE) dosyasındaki **MIT** lisansı kapsamındadır. Eski derlenmiş uygulama paketleri, depo kökündeki dağıtım dosyaları (`index.html`, `sw.js`, `assets/`, ikonlar ve görseller dâhil), iki projenin `public/` varlıkları, `hbk-spor-src/src/data/exercise-catalog.json`, marka öğeleri ve üçüncü taraf içerikler bu lisansın kapsamı dışındadır; ilgili hak ve lisansları saklıdır. Bu kapsam, sahipliği belirsiz eski dağıtım dosyalarına yanlışlıkla yeniden kullanım izni vermemek için özellikle ayrılmıştır.

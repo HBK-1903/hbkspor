@@ -1,10 +1,10 @@
-# HBK Spor — kapsamlı uygulama + düzenlenebilir kas analizi
+# HBK Spor — kapsamlı uygulama + kaynaklı performans analizi
 
-Bu klasör, mevcut kapsamlı HBK Spor dağıtımını koruyup üzerine kaynak kodlu kas analizi eklemek için oluşturulmuş bir Vite projesidir.
+Bu klasör, mevcut kapsamlı HBK Spor dağıtımını korur ve mevcut kullanıcı verisini yeniden kullanan performans analiz merkezini ekler. Analiz; 4/8/12 haftalık dönem kıyası, haftalık yük grafiği, 12 haftalık aktivite takvimi, CSV raporu, kas, maç, GPS, toparlanma, testler, kişisel rekorlar ve planlanan–gerçekleşen karşılaştırmasını içerir.
 
 ## Önemli kaynak kodu notu
 
-Depoda özgün React kaynakları veya source map bulunmadığından mevcut ana uygulamanın kaynak kodu birebir geri çıkarılamaz. `public/assets/index-CGAXHvPf.js` ve `index-DnZOOWBL.css`, repodaki mevcut kapsamlı dağıtım paketinin aynısıdır; bu modüller çalışır durumda korunur. Yeni kas analizi ise `src/` altında düzenlenebilir TypeScript/React olarak yazılmıştır. Bu nedenle bu klasör kapsamlı eski işlevleri yayınlarken yenisini ekler; eski modüller için henüz özgün kaynak kodu sağlamaz.
+Depoda özgün React kaynakları veya source map bulunmadığından mevcut ana uygulamanın kaynak kodu birebir geri çıkarılamaz. `public/assets/index-CGAXHvPf.js` ve `index-DnZOOWBL.css`, repodaki mevcut kapsamlı dağıtım paketinin aynısıdır; bu modüller çalışır durumda korunur. Yeni performans analizi ise `src/` altında düzenlenebilir TypeScript/React olarak yazılmıştır. Eski modüller için özgün kaynak bulunduğu iddia edilmez.
 
 ## Yerel geliştirme, test ve derleme
 
@@ -32,14 +32,32 @@ npm run preview
 - Build command: `npm run build`
 - Build output directory: `dist`
 
-Bu proje kendi başına deploy etmez.
+Bu proje kendi başına deploy etmez. Üretim yönlendirmesi öncesi test, build ve gerçek cihaz/veri uyumluluğu ayrıca doğrulanmalıdır.
 
-## Mevcut uygulamayla uyumluluk
+## Mevcut uygulamayla veri uyumluluğu
 
 - Kapsamlı uygulama `hbk_spor_performans_db` IndexedDB veritabanının v2 sürümünü kullanır.
-- Kas analizi `workouts` ve `exercises` store'larını **salt okunur** biçimde açar; veritabanını yükseltmez, kayıtları değiştirmez veya sıfırlamaz.
-- Analiz, mevcut `workout → gymExercises → sets` yapısını okur ve paket içindeki egzersiz kataloğuyla kas gruplarını eşleştirir.
-- Yeni set RPE ve dinlenme değerleri `hbk_muscle_effort_v1` anahtarında, yalnızca bu cihazda saklanır. Bunlar ana uygulamanın JSON yedeğine dahil değildir; verileri taşımak için kas analizi penceresindeki ayrı JSON yedeğini kullanın.
-- Bilinmeyen özel hareketlerin kas grubu tahmin edilmez; yanlış kas yükü üretmek yerine rapordan çıkarılır.
+- Analiz `workouts`, `exercises`, `matches`, `weeklyPlan`, `customPlans` ve `playerProfile` store'larını **salt okunur** biçimde açar; veritabanını yükseltmez, kayıtları değiştirmez veya sıfırlamaz.
+- GPS koşuları `hbk_gps_runs`, performans testleri `hbk_skill_tests_v1` localStorage kayıtlarından okunur. Toparlanma check-in’leri mevcut workout kayıtlarının `wellness` alanından alınır.
+- `demo-` / `demo_` ile başlayan örnek kayıtlar analiz metriklerinden hariç tutulur.
+- Yeni set RPE bilgileri `hbk_muscle_effort_v1`; dışarıdan alınan GPS özetleri ve sadeleştirilmiş rota noktaları `hbk_analytics_gps_imports_v1` anahtarında, yalnızca bu cihazda tutulur. Bunlar ana uygulamanın JSON yedeğine dahil değildir.
+- Analiz yedeği mevcut antrenman/maç kayıtlarını taşımaz; yalnızca ek set eforu ve dışarıdan içe aktarılan GPS verisini JSON olarak taşır. Uygulamanın kendi yedeği ayrıca alınmalıdır.
 
-Kas eşleştirmeleri ve ana/yardımcı kas set ağırlıkları yaklaşık planlama göstergeleridir; gerçek kas gelişimi, yorgunluk veya sağlık durumu ölçümü değildir.
+## GPS dosyası ve Strava
+
+GPS sekmesi `.gpx`, `.tcx` ve `.fit` dosyalarını kabul eder. GPX/TCX rota noktalarından yaklaşık mesafe, süre, hareket süresi, tempo ve 1 km turları hesaplanır. FIT içe aktarımında, varsa cihazın aktivite özeti tercih edilir. Rota, mesafe, tempo, hız, yükseklik artışı, nabız ve kadans yalnızca kaynağın sağladığı verilere dayanır; eksik sensör değerleri uydurulmaz.
+
+Dosya 20 MB ile sınırlıdır. Ham dosya yüklenmez veya saklanmaz; içe aktarılan rota için en fazla 600 koordinat localStorage’da kalır ve kullanıcı aktivite kartından silebilir. Strava OAuth/API ile otomatik senkronizasyon bu sürümde yoktur. API bağlantısı için ayrıca OAuth izni ve secret’ları tarayıcı dışında tutan güvenli bir sunucu/Worker gerekir.
+
+Ayrıntılı kaynaklar, hesaplama kuralları ve aktarım/gizlilik sınırları: [`docs/performance-analytics.md`](./docs/performance-analytics.md).
+
+## Hesaplama sınırları
+
+- Oturum yükü yalnızca kaydedilmiş öz bildirimli oturum RPE’si (1–10) × süre ile gösterilir. Bu ölçülmüş yorgunluk, sakatlık riski veya kas gelişimi değildir; RPE olmayan oturumlara yük puanı üretilmez.
+- Kas eşleştirmeleri ve ana/yardımcı kas set ağırlıkları yaklaşık planlama göstergeleridir; gerçek kas gelişimi, yorgunluk veya sağlık durumu ölçümü değildir.
+- GPS mesafesi/hareket süresi algoritmik tahmindir ve Strava veya cihaz değerinden farklı çıkabilir. Kişiye/branşa uygun eşikler girilmediğinden hız bölgeleri sınıflandırılmaz.
+- Kişisel rekorlar yalnızca kayıtlı değerlerden hesaplanır; tahmini 1RM veya kondisyon skoru üretilmez.
+
+## Lisans
+
+Yeni kaynak kodu ve dokümantasyon için depo kökündeki [`LICENSE`](../LICENSE) dosyasına bak. Kapsamlı eski derlenmiş uygulama paketi, depo kökündeki dağıtım dosyaları, `public/` varlıkları ve çıkarılmış `src/data/exercise-catalog.json` MIT kapsamına dahil değildir; bunların mevcut hakları saklıdır.

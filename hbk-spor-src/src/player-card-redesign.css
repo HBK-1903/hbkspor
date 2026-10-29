@@ -1,0 +1,305 @@
+/*
+ * HBK player-card visual refresh.
+ * The full legacy app ships as a compiled bundle; target its stable accessible
+ * labels and card structure rather than changing or copying its data logic.
+ */
+:root {
+  --hbk-card-gold: #ead18a;
+  --hbk-card-gold-bright: #fff0bd;
+  --hbk-card-ink: #111710;
+  --hbk-card-green: #b8f34b;
+}
+
+/* Home-screen player tile: portrait, OVR and identity in a compact FUT-style frame. */
+button[aria-label="Oyuncu kartını aç"] {
+  isolation: isolate !important;
+  position: relative !important;
+  display: grid !important;
+  grid-template-columns: 82px minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 14px !important;
+  min-height: 166px !important;
+  padding: 19px 18px !important;
+  overflow: hidden !important;
+  border: 1px solid #f0d990a8 !important;
+  border-radius: 25px !important;
+  background-color: #111711 !important;
+  color: #fff8df !important;
+  text-align: left !important;
+  box-shadow: 0 16px 34px #0008, inset 0 1px 0 #fff8, inset 0 0 0 3px #ffffff08 !important;
+  transform: translateZ(0);
+}
+button[aria-label="Oyuncu kartını aç"]::before {
+  content: "HBK  ·  PLAYER EDITION";
+  position: absolute;
+  z-index: 2;
+  top: 13px;
+  right: 16px;
+  color: #f2dfa7b8;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: .2em;
+  pointer-events: none;
+}
+button[aria-label="Oyuncu kartını aç"]::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background:
+    repeating-linear-gradient(128deg, transparent 0 25px, #fff1 26px, transparent 27px 54px),
+    linear-gradient(110deg, transparent 35%, #e7ce7b10 55%, transparent 75%);
+  opacity: .72;
+  pointer-events: none;
+}
+button[aria-label="Oyuncu kartını aç"] > img {
+  position: absolute !important;
+  z-index: 1 !important;
+  inset: 0 0 0 auto !important;
+  width: 43% !important;
+  height: 100% !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  object-fit: cover !important;
+  object-position: center 18% !important;
+  filter: saturate(.9) contrast(1.05) !important;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 34%, #000 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 34%, #000 100%);
+}
+button[aria-label="Oyuncu kartını aç"] > div:first-of-type {
+  position: relative !important;
+  z-index: 3 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  align-self: stretch !important;
+  gap: 4px !important;
+  min-width: 0 !important;
+  padding: 7px 13px 7px 0 !important;
+  border-right: 1px solid #ead18a66 !important;
+  color: var(--hbk-card-gold-bright) !important;
+  text-shadow: 0 2px 14px #0009 !important;
+}
+button[aria-label="Oyuncu kartını aç"] > div:first-of-type > p:first-child {
+  font-size: 42px !important;
+  font-weight: 1000 !important;
+  line-height: .88 !important;
+  letter-spacing: -.07em !important;
+  color: var(--hbk-card-gold-bright) !important;
+  text-shadow: 0 2px 0 #84652b, 0 6px 18px #0008 !important;
+}
+button[aria-label="Oyuncu kartını aç"] > div:first-of-type > p:nth-child(2) {
+  margin-top: 5px !important;
+  padding: 4px 8px !important;
+  border: 1px solid #f5e6bd78 !important;
+  border-radius: 8px !important;
+  background: #111710a8 !important;
+  color: #fff6dc !important;
+  font-size: 11px !important;
+  font-weight: 950 !important;
+  letter-spacing: .08em !important;
+}
+button[aria-label="Oyuncu kartını aç"] > div:nth-of-type(2) {
+  position: relative !important;
+  z-index: 3 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  padding-top: 17px !important;
+  text-shadow: 0 2px 9px #000b !important;
+}
+button[aria-label="Oyuncu kartını aç"] > div:nth-of-type(2) > p:first-child {
+  overflow: visible !important;
+  color: #fff8e9 !important;
+  font-size: clamp(16px, 5vw, 21px) !important;
+  font-weight: 1000 !important;
+  letter-spacing: .035em !important;
+  line-height: 1.05 !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+button[aria-label="Oyuncu kartını aç"] > div:nth-of-type(2) > p:nth-child(2) {
+  margin-top: 6px !important;
+  color: #eadfbf !important;
+  font-size: 9px !important;
+  font-weight: 850 !important;
+  letter-spacing: .09em !important;
+  text-transform: uppercase !important;
+}
+button[aria-label="Oyuncu kartını aç"] > div:nth-of-type(2) > p:nth-child(3) {
+  display: inline-flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  margin-top: 11px !important;
+  color: var(--hbk-card-green) !important;
+  font-size: 9px !important;
+  font-weight: 950 !important;
+  letter-spacing: .055em !important;
+}
+button[aria-label="Oyuncu kartını aç"]:hover {
+  border-color: var(--hbk-card-gold-bright) !important;
+  box-shadow: 0 19px 40px #0009, 0 0 25px #ead18a24, inset 0 1px 0 #fff9 !important;
+}
+button[aria-label="Oyuncu kartını aç"]:active { transform: scale(.99) !important; }
+
+/* Full card modal: collector-card proportions, foil frame and clearer stat grid. */
+[role="dialog"] .rounded-3xl.border-line-500 {
+  position: relative !important;
+  isolation: isolate !important;
+  width: min(100%, 390px) !important;
+  min-height: 470px !important;
+  aspect-ratio: .78 !important;
+  margin-inline: auto !important;
+  overflow: hidden !important;
+  border: 1px solid #f4df9a !important;
+  border-radius: 29px !important;
+  background-color: #111611 !important;
+  box-shadow: 0 20px 55px #000b, 0 0 0 3px #e7d18a15, inset 0 1px 0 #fff9 !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset: 8px;
+  border: 1px solid #fff2;
+  border-radius: 22px;
+  background: repeating-linear-gradient(132deg, transparent 0 31px, #fff1 32px, transparent 33px 66px);
+  pointer-events: none;
+}
+[role="dialog"] .rounded-3xl.border-line-500::after {
+  content: "HBK  ·  ULTIMATE PLAYER";
+  position: absolute;
+  z-index: 4;
+  right: 23px;
+  bottom: 13px;
+  color: #f6e6b681;
+  font-size: 7px;
+  font-weight: 950;
+  letter-spacing: .22em;
+  pointer-events: none;
+}
+[role="dialog"] .rounded-3xl.border-line-500 > img.absolute.right-0.top-0 {
+  z-index: 0 !important;
+  width: 76% !important;
+  height: 68% !important;
+  object-fit: cover !important;
+  object-position: center 14% !important;
+  filter: saturate(.88) contrast(1.08) !important;
+  -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+}
+[role="dialog"] .rounded-3xl.border-line-500 > .absolute.right-0.top-0 {
+  z-index: 1 !important;
+  width: 76% !important;
+  height: 68% !important;
+  background: linear-gradient(90deg, #282313 0%, transparent 35%), linear-gradient(180deg, #161a1266 40%, #111710 100%) !important;
+  pointer-events: none !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 {
+  z-index: 3 !important;
+  display: flex !important;
+  min-height: 470px !important;
+  flex-direction: column !important;
+  padding: 23px !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .flex.items-start.justify-between {
+  position: relative !important;
+  z-index: 3 !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .flex.items-start.justify-between > div:first-child > p:first-child {
+  color: var(--hbk-card-gold-bright) !important;
+  font-size: 64px !important;
+  font-weight: 1000 !important;
+  line-height: .86 !important;
+  letter-spacing: -.08em !important;
+  text-shadow: 0 3px 0 #7a5d28, 0 8px 25px #000b !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .flex.items-start.justify-between > div:first-child > p:nth-child(2) {
+  display: inline-flex !important;
+  margin-top: 8px !important;
+  padding: 4px 9px !important;
+  border: 1px solid #f3e4b885 !important;
+  border-radius: 8px !important;
+  background: #111710b8 !important;
+  color: #fff8e1 !important;
+  font-size: 13px !important;
+  font-weight: 950 !important;
+  letter-spacing: .08em !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .flex.items-start.justify-between > div:last-child {
+  padding: 9px 11px !important;
+  border: 1px solid #f1dfaa65 !important;
+  border-radius: 13px !important;
+  background: #101610a8 !important;
+  color: #fff7dd !important;
+  text-shadow: 0 1px 7px #000 !important;
+  backdrop-filter: blur(8px) !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .mt-24,
+[role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .mt-4 {
+  position: relative !important;
+  z-index: 3 !important;
+  margin-top: auto !important;
+  padding-top: 190px !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .mt-24 > p:first-child,
+[role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .mt-4 > p:first-child {
+  color: #fff9e9 !important;
+  font-size: clamp(23px, 7vw, 31px) !important;
+  font-weight: 1000 !important;
+  letter-spacing: .04em !important;
+  line-height: 1 !important;
+  text-shadow: 0 3px 12px #000 !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .mt-24 > p:nth-child(2),
+[role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .mt-4 > p:nth-child(2) {
+  margin-top: 5px !important;
+  color: #f0e1b9 !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  letter-spacing: .12em !important;
+  text-transform: uppercase !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 .grid.grid-cols-6 {
+  position: relative !important;
+  z-index: 3 !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 7px 5px !important;
+  margin-top: 15px !important;
+  padding: 12px 10px !important;
+  border: 1px solid #f2dda147 !important;
+  border-radius: 16px !important;
+  background: linear-gradient(110deg, #101610e8, #24301ddd) !important;
+  box-shadow: 0 8px 25px #0005 !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 .grid.grid-cols-6 > div {
+  padding: 3px 0 !important;
+  border-right: 1px solid #ead18a28 !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 .grid.grid-cols-6 > div:nth-child(3n) { border-right: 0 !important; }
+[role="dialog"] .rounded-3xl.border-line-500 .grid.grid-cols-6 > div > p:first-child {
+  color: var(--hbk-card-gold-bright) !important;
+  font-size: 22px !important;
+  font-weight: 1000 !important;
+  line-height: 1 !important;
+}
+[role="dialog"] .rounded-3xl.border-line-500 .grid.grid-cols-6 > div > p:last-child {
+  margin-top: 4px !important;
+  color: #d9d0b9 !important;
+  font-size: 8px !important;
+  font-weight: 950 !important;
+  letter-spacing: .12em !important;
+}
+
+@media (max-width: 380px) {
+  button[aria-label="Oyuncu kartını aç"] { grid-template-columns: 68px minmax(0, 1fr) !important; gap: 11px !important; min-height: 154px !important; padding: 17px 13px !important; }
+  button[aria-label="Oyuncu kartını aç"] > div:first-of-type > p:first-child { font-size: 36px !important; }
+  [role="dialog"] .rounded-3xl.border-line-500 { min-height: 440px !important; }
+  [role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 { min-height: 440px !important; padding: 19px !important; }
+  [role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .mt-24,
+  [role="dialog"] .rounded-3xl.border-line-500 > .relative.p-5 > .mt-4 { padding-top: 166px !important; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  button[aria-label="Oyuncu kartını aç"] { transition: transform .18s ease, box-shadow .2s ease, border-color .2s ease !important; }
+}
