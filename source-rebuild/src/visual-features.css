@@ -15,6 +15,12 @@
 .drill-card,.gps-activity-card { min-width:0; overflow:hidden; border:1px solid #2d3d31; border-radius:18px; background:linear-gradient(165deg,#19241d,#101713 78%); box-shadow:0 10px 25px #0002; }
 .drill-card__art { position:relative; padding:7px; background:radial-gradient(ellipse at 50% 10%,#4d713922,transparent 65%),#0d1812; }
 .drill-diagram { display:block; width:100%; height:auto; border-radius:14px; }
+.drill-play { position:absolute; left:14px; top:14px; min-height:28px; padding:0 9px; border:1px solid #ffffff30; border-radius:99px; background:#09110edb; color:#efffdb; font-size:8px; font-weight:850; backdrop-filter:blur(6px); }
+.drill-diagram.is-animated .drill-route { stroke-dasharray:5 5; animation:drill-flow 1s linear infinite; filter:drop-shadow(0 0 4px #d8ff8c); }
+.drill-diagram.is-animated .drill-player { transform-box:fill-box; transform-origin:center; animation:drill-pulse .8s ease-in-out infinite alternate; }
+@keyframes drill-flow { to { stroke-dashoffset:-20; } }
+@keyframes drill-pulse { to { opacity:.48; transform:scale(1.3); transform-box:fill-box; transform-origin:center; } }
+@media(prefers-reduced-motion:reduce) { .drill-diagram.is-animated .drill-route,.drill-diagram.is-animated .drill-player { animation:none; } }
 .drill-duration { position:absolute; right:14px; top:14px; padding:5px 8px; border:1px solid #ffffff28; border-radius:99px; background:#09110edb; color:#e9f6de; font-size:9px; font-weight:850; backdrop-filter:blur(6px); }
 .drill-card__body { padding:11px 12px 13px; }
 .drill-meta { display:flex; justify-content:space-between; gap:5px; color:#9dcc70; font-size:8px; font-weight:900; letter-spacing:.04em; text-transform:uppercase; }

@@ -2,7 +2,7 @@ import type { AppData } from './types';
 
 const STORAGE_KEY = 'hbk_spor_rebuild_v1';
 
-const EMPTY_DATA: AppData = { profile: null, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [] };
+const EMPTY_DATA: AppData = { profile: null, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [], weeklyPlan: [], customGoals: [] };
 
 export function loadAppData(): AppData {
   try {
@@ -26,6 +26,9 @@ export function loadAppData(): AppData {
       workoutTemplates: Array.isArray(parsed.workoutTemplates) ? parsed.workoutTemplates : [],
       skillTests: Array.isArray(parsed.skillTests) ? parsed.skillTests : [],
       gpsActivities: Array.isArray(parsed.gpsActivities) ? parsed.gpsActivities : [],
+      weeklyPlan: Array.isArray(parsed.weeklyPlan) ? parsed.weeklyPlan : [],
+      customGoals: Array.isArray(parsed.customGoals) ? parsed.customGoals : [],
+      playerCard: parsed.playerCard && typeof parsed.playerCard === 'object' ? parsed.playerCard : undefined,
     };
   } catch {
     return { ...EMPTY_DATA, sessions: [], completedGoals: [], goalCompletions: {} };

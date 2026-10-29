@@ -102,6 +102,38 @@ export interface GpsActivity {
   route: GpsRoutePoint[];
 }
 
+export type GoalMetric = 'sessions' | 'minutes' | 'gpsKm' | 'tests';
+export type GoalPeriod = 'week' | 'month' | 'all';
+
+export interface CustomGoal {
+  id: string;
+  title: string;
+  metric: GoalMetric;
+  period: GoalPeriod;
+  target: number;
+  createdAt: string;
+}
+
+export interface WeeklyPlanItem {
+  id: string;
+  date: string;
+  kind: SessionKind;
+  title: string;
+  minutes: number;
+  /** Filled only when the planned item is explicitly converted into a saved session. */
+  completedSessionId?: string;
+}
+
+export type PlayerCardTheme = 'field' | 'gold' | 'night';
+export interface PlayerCardAppearance {
+  photoDataUrl?: string;
+  theme: PlayerCardTheme;
+  zoom: number;
+  positionY: number;
+  saturation: number;
+  brightness: number;
+}
+
 export interface AppData {
   profile: PlayerProfile | null;
   /** Demo fixture is intentionally excluded from achievement/progress claims. */
@@ -115,4 +147,7 @@ export interface AppData {
   skillTests?: SkillTestRecord[];
   /** User-imported GPX tracks remain separate from logged training sessions. */
   gpsActivities?: GpsActivity[];
+  weeklyPlan?: WeeklyPlanItem[];
+  customGoals?: CustomGoal[];
+  playerCard?: PlayerCardAppearance;
 }

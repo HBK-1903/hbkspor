@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react';
 import type { ChangeEvent, CSSProperties } from 'react';
 import { getAchievements } from './achievements';
+import { getCustomGoalProgress, GOAL_METRIC_LABELS, GOAL_PERIOD_LABELS } from './goals';
 import { parseGpx, MAX_GPX_BYTES, formatDuration } from './gps';
 import { DRILL_LIBRARY, type Drill, type DrillCategory } from './drills';
-import { shiftLocalDate } from './training';
-import type { AppData, GpsActivity } from './types';
+import { EXERCISE_LIBRARY, getWeekStartKey, localDateKey, MUSCLE_LABELS, shiftLocalDate } from './training';
+import type { ExerciseDefinition } from './training';
+import type { AppData, CustomGoal, GoalMetric, GoalPeriod, GpsActivity, MuscleGroup, TrainingSession, WeeklyPlanItem } from './types';
 
 const CATEGORIES: Array<'Tümü' | DrillCategory> = ['Tümü', 'Top kontrolü', 'Pas', 'Dripling', 'Bitiricilik', 'Hız & çeviklik'];
 const MAX_GPS_ACTIVITIES = 30;
@@ -23,23 +25,24 @@ export function DrillLibrary({ onUse }: { onUse: (drill: Drill) => void }) {
 }
 
 function DrillCard({ drill, onUse }: { drill: Drill; onUse: () => void }) {
+  const [playing, setPlaying] = useState(false);
   return <article className="drill-card">
-    <div className="drill-card__art"><DrillDiagram drill={drill} /><span className="drill-duration">⏱ {drill.duration} dk</span></div>
+    <div className={`drill-card__art${playing ? ' is-animated' : ''}`}><DrillDiagram drill={drill} animated={playing} /><span className="drill-duration">⏱ {drill.duration} dk</span><button type="button" className="drill-play" aria-pressed={playing} onClick={() => setPlaying((value) => !value)}>{playing ? 'Ⅱ Durdur' : '▶ Canlandır'}</button></div>
     <div className="drill-card__body"><div className="drill-meta"><span>{drill.category}</span><span>{drill.level}</span></div><h3>{drill.name}</h3><p>{drill.description}</p><div className="drill-tags">{drill.positions.map((position) => <span key={position}>{position}</span>)}</div><div className="drill-equipment">🟠 {drill.equipment}</div><details className="drill-cues"><summary>Uygulama ipuçları</summary><ul>{drill.cues.map((cue) => <li key={cue}>{cue}</li>)}</ul></details><button type="button" className="secondary-button full-button" onClick={onUse}>Saha kaydına ekle <span aria-hidden="true">→</span></button></div>
   </article>;
 }
 
-function DrillDiagram({ drill }: { drill: Drill }) {
+function DrillDiagram({ drill, animated }: { drill: Drill; animated: boolean }) {
   const arrowId = `arrow-${drill.id}`;
-  return <svg className="drill-diagram" viewBox="0 0 320 190" role="img" aria-label={`${drill.name} saha şeması`}>
+  return <svg className={`drill-diagram${animated ? ' is-animated' : ''}`} viewBox="0 0 320 190" role="img" aria-label={`${drill.name} saha şeması`}>
     <defs><marker id={arrowId} markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7 Z" fill="#d8ff8c" /></marker><linearGradient id={`field-${drill.id}`} x1="0" x2="1"><stop stopColor="#173b2a" /><stop offset="1" stopColor="#214d31" /></linearGradient></defs>
     <rect x="6" y="6" width="308" height="178" rx="15" fill={`url(#field-${drill.id})`} stroke="#7bac68" strokeOpacity=".65" />
     <path d="M160 7 V183 M7 95 H313 M7 50 H49 V140 H7 M313 50 H271 V140 H313" fill="none" stroke="#d8e5c3" strokeOpacity=".34" strokeWidth="1.2" />
     <circle cx="160" cy="95" r="24" fill="none" stroke="#d8e5c3" strokeOpacity=".34" strokeWidth="1.2" />
-    <path d={drill.route} fill="none" stroke="#d8ff8c" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="7 5" markerEnd={`url(#${arrowId})`} />
+    <path className="drill-route" d={drill.route} fill="none" stroke="#d8ff8c" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="7 5" markerEnd={`url(#${arrowId})`} />
     {drill.alternateRoute && <path d={drill.alternateRoute} fill="none" stroke="#58c7ff" strokeOpacity=".92" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4 5" markerEnd={`url(#${arrowId})`} />}
     {drill.cones.map(([cx, cy], index) => <g key={`cone-${index}`}><circle cx={cx} cy={cy} r="6" fill={index % 2 ? '#fb923c' : '#ffcf5c'} stroke="#fff3cf" strokeWidth="1.5" /><circle cx={cx} cy={cy} r="10" fill="none" stroke="#ffcf5c" strokeOpacity=".23" /></g>)}
-    {drill.players.map(([px, py], index) => <g key={`player-${index}`}><circle cx={px} cy={py} r="7" fill="#e9ffbe" stroke="#112018" strokeWidth="2" /><path d={`M${px} ${py + 8} v9`} stroke="#e9ffbe" strokeWidth="2.5" strokeLinecap="round" /></g>)}
+    {drill.players.map(([px, py], index) => <g className="drill-player" key={`player-${index}`}><circle cx={px} cy={py} r="7" fill="#e9ffbe" stroke="#112018" strokeWidth="2" /><path d={`M${px} ${py + 8} v9`} stroke="#e9ffbe" strokeWidth="2.5" strokeLinecap="round" /></g>)}
     <g transform="translate(17 164)"><circle cx="4" cy="4" r="4" fill="#e9ffbe"/><text x="12" y="7" fill="#d5e7d0" fontSize="8">oyuncu</text><circle cx="68" cy="4" r="4" fill="#fb923c"/><text x="76" y="7" fill="#d5e7d0" fontSize="8">koni</text></g>
   </svg>;
 }
@@ -117,7 +120,7 @@ function RouteMap({ activity }: { activity: GpsActivity }) {
   </svg>;
 }
 
-export function ProgressAchievements({ data, weekStart }: { data: AppData; weekStart: string }) {
+export function ProgressAchievements({ data, weekStart, onAddGoal, onDeleteGoal }: { data: AppData; weekStart: string; onAddGoal: (goal: Omit<CustomGoal, 'id' | 'createdAt'>) => void; onDeleteGoal: (id: string) => void }) {
   const achievements = getAchievements(data);
   const unlocked = achievements.filter((achievement) => achievement.value >= achievement.target).length;
   const weekdays = Array.from({ length: 7 }, (_, index) => {
@@ -138,6 +141,111 @@ export function ProgressAchievements({ data, weekStart }: { data: AppData; weekS
       const displayValue = achievement.unit === 'km' ? formatNumber(achievement.value, 1) : formatNumber(achievement.value, 0);
       return <article key={achievement.id} className={`achievement-card${complete ? ' is-complete' : ''}`}><div className="achievement-card__top"><span className="achievement-icon" aria-hidden="true">{achievement.icon}</span><span className="achievement-status">{complete ? 'TAMAMLANDI' : 'SONRAKİ HEDEF'}</span></div><h3>{achievement.title}</h3><p>{achievement.detail}</p><div className="achievement-progress"><i style={{ width: `${progress}%` }} /></div><div className="achievement-card__foot"><span>{displayValue} / {achievement.target} {achievement.unit}</span>{complete && <b aria-label="Rozet açıldı">✦</b>}</div></article>;
     })}</div>
+    <CustomGoalPanel data={data} goals={data.customGoals ?? []} onAdd={onAddGoal} onDelete={onDeleteGoal} />
     <section className="card progress-records"><div className="section-head compact"><div><p className="eyebrow">KAYIT KAPSAMI</p><h2>İlerlemenin dayanağı</h2></div><span>🔒</span></div><div><b>{data.demoMode ? 0 : data.sessions.filter((session) => session.kind !== 'rest').length}</b><span> aktif seans</span><i /><b>{data.demoMode ? 0 : (data.gpsActivities ?? []).length}</b><span> GPS rotası</span><i /><b>{recentTests.length}</b><span> test sonucu</span></div><p className="field-help">Bu ekrandaki rozetler ve grafikler yerel kayıtlarından hesaplanır. Paylaşım veya otomatik veri aktarımı yapılmaz.</p></section>
   </div>;
+}
+
+export function ExerciseVisualLibrary({ onChoose }: { onChoose: (exerciseId: string) => void }) {
+  const [muscle, setMuscle] = useState<MuscleGroup | 'all'>('all');
+  const [query, setQuery] = useState('');
+  const exercises = EXERCISE_LIBRARY.filter((exercise) => {
+    const matchesMuscle = muscle === 'all' || exercise.primaryMuscles.includes(muscle) || exercise.secondaryMuscles.includes(muscle);
+    return matchesMuscle && exercise.name.toLocaleLowerCase('tr-TR').includes(query.trim().toLocaleLowerCase('tr-TR'));
+  });
+  return <div className="visual-workspace">
+    <section className="visual-intro"><span className="visual-intro__icon">💪</span><div><p className="eyebrow">HAREKET GALERİSİ</p><h2>Görselli hareket kütüphanesi</h2><p>Kas grubu çizimleri şematiktir. Bir hareketi seçerek Gym kaydında set ve tekrar girmeye geç.</p></div></section>
+    <label className="field-label">Hareket ara<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Örn. squat" /></label>
+    <label className="field-label">Kas grubuna göre filtrele<select value={muscle} onChange={(event) => setMuscle(event.target.value as MuscleGroup | 'all')}><option value="all">Tüm kas grupları</option>{Object.entries(MUSCLE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+    <div className="exercise-visual-grid">{exercises.map((exercise) => <ExerciseVisualCard key={exercise.id} exercise={exercise} onChoose={() => onChoose(exercise.id)} />)}</div>
+    {!exercises.length && <p className="empty-copy">Bu aramayla eşleşen hareket yok.</p>}
+    <p className="analysis-disclaimer">Çizimler kas gruplarını hatırlatmak için hazırlanmış şematik görsellerdir; hareket tekniği veya sakatlık önleme tavsiyesi değildir.</p>
+  </div>;
+}
+
+function ExerciseVisualCard({ exercise, onChoose }: { exercise: ExerciseDefinition; onChoose: () => void }) {
+  const target = [...exercise.primaryMuscles, ...exercise.secondaryMuscles];
+  const lower = target.some((muscle) => ['quadriceps', 'hamstrings', 'glutes', 'calves'].includes(muscle));
+  const core = target.includes('core') && !lower;
+  const pull = target.some((muscle) => ['back', 'biceps'].includes(muscle));
+  const kind = lower ? 'lower' : core ? 'core' : pull ? 'pull' : 'push';
+  return <article className="exercise-visual-card"><div className={`exercise-art exercise-art--${kind}`}><svg viewBox="0 0 160 110" role="img" aria-label={`${exercise.name} için şematik hareket görseli`}>
+    <defs><linearGradient id={`exercise-bg-${exercise.id}`} x1="0" y1="0" x2="1" y2="1"><stop stopColor="#25392b"/><stop offset="1" stopColor="#101a14"/></linearGradient></defs>
+    <rect x="2" y="2" width="156" height="106" rx="14" fill={`url(#exercise-bg-${exercise.id})`} stroke="#8eaa78" strokeOpacity=".38"/>
+    <path d="M20 87H140" stroke="#dbe8d4" strokeOpacity=".25" strokeWidth="2"/>
+    {kind === 'lower' ? <g fill="none" stroke="#e4f1dc" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"><circle cx="80" cy="24" r="8" fill="#e4f1dc" stroke="none"/><path d="M80 34L80 58 61 69 51 86M80 58L99 68 109 86M64 43L44 57M96 43L115 54"/><path d="M51 86H40M109 86H121" stroke="#b8f34b"/></g> : kind === 'core' ? <g fill="none" stroke="#e4f1dc" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"><circle cx="46" cy="62" r="7" fill="#e4f1dc" stroke="none"/><path d="M54 63L91 63 115 70M68 63L56 84M91 63L104 84M115 70L132 70"/><path d="M49 50Q79 36 112 51" stroke="#b8f34b" strokeWidth="3"/></g> : kind === 'pull' ? <g fill="none" stroke="#e4f1dc" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"><circle cx="78" cy="22" r="8" fill="#e4f1dc" stroke="none"/><path d="M78 32L78 60M78 39L49 57 36 48M78 39L107 57 120 48M78 60L62 85M78 60L94 85"/><path d="M31 42L41 52M115 52L125 42" stroke="#b8f34b" strokeWidth="4"/><path d="M27 38V22H133V38" stroke="#70d6ff" strokeWidth="2"/></g> : <g fill="none" stroke="#e4f1dc" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"><circle cx="80" cy="24" r="8" fill="#e4f1dc" stroke="none"/><path d="M80 34L80 61M80 41L47 39M80 41L113 39M80 61L63 86M80 61L97 86"/><path d="M38 35H122M45 30V40M115 30V40" stroke="#b8f34b" strokeWidth="3"/></g>}
+    {target.slice(0, 3).map((group, index) => <circle key={group} cx={index === 0 ? 72 : index === 1 ? 85 : 78} cy={kind === 'lower' ? 61 + index * 9 : kind === 'core' ? 62 : 45 + index * 7} r="4.5" fill="#b8f34b" stroke="#efffd4" strokeWidth="1"/>)}
+  </svg></div><div className="exercise-visual-card__body"><h3>{exercise.name}</h3><div className="exercise-muscle-tags">{target.slice(0, 4).map((group) => <span key={group}>{MUSCLE_LABELS[group]}</span>)}</div><button type="button" className="secondary-button full-button" onClick={onChoose}>Gym kaydına ekle</button></div></article>;
+}
+
+const PLAN_KIND_LABELS: Record<TrainingSession['kind'], string> = { gym: 'Gym', pitch: 'Saha', match: 'Maç', gps: 'GPS', timer: 'Tempo', recovery: 'Toparlanma', rest: 'Dinlenme' };
+const PLAN_KIND_ICONS: Record<TrainingSession['kind'], string> = { gym: '🏋️', pitch: '⚽', match: '🏟️', gps: '🏃', timer: '⏱️', recovery: '🧘', rest: '🌙' };
+
+export function WeeklyPlanner({ items, onAdd, onDelete, onStart }: {
+  items: WeeklyPlanItem[];
+  onAdd: (item: Omit<WeeklyPlanItem, 'id'>) => void;
+  onDelete: (id: string) => void;
+  onStart: (item: WeeklyPlanItem) => void;
+}) {
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [title, setTitle] = useState('');
+  const [kind, setKind] = useState<TrainingSession['kind']>('pitch');
+  const [minutes, setMinutes] = useState('45');
+  const [date, setDate] = useState(localDateKey());
+  const [error, setError] = useState('');
+  const baseWeek = getWeekStartKey();
+  const weekStart = shiftLocalDate(baseWeek, weekOffset * 7);
+  const dates = Array.from({ length: 7 }, (_, index) => shiftLocalDate(weekStart, index));
+  const visibleItems = items.filter((item) => dates.includes(item.date)).sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title, 'tr'));
+  const changeWeek = (amount: number) => {
+    const nextOffset = weekOffset + amount;
+    setWeekOffset(nextOffset);
+    setDate(shiftLocalDate(baseWeek, nextOffset * 7));
+  };
+  const add = () => {
+    const parsedMinutes = Number(minutes);
+    if (!title.trim() || !dates.includes(date) || !Number.isInteger(parsedMinutes) || parsedMinutes < 0 || parsedMinutes > 600 || items.length >= 100) {
+      setError('Başlık gir, bu haftadan bir gün seç ve süreyi 0–600 dakika arasında tut (en fazla 100 plan).');
+      return;
+    }
+    onAdd({ date, kind, title: title.trim().slice(0, 60), minutes: parsedMinutes });
+    setTitle(''); setError('');
+  };
+  return <div className="visual-workspace">
+    <section className="visual-intro"><span className="visual-intro__icon">🗓️</span><div><p className="eyebrow">HAFTALIK PLAN</p><h2>Çalışmalarını önceden gör</h2><p>Planlar niyet/taslak olarak saklanır. İstatistiklere ancak kaydı gerçekten tamamladığında girer.</p></div></section>
+    <section className="card weekly-planner"><div className="planner-heading"><button type="button" className="secondary-button" aria-label="Önceki hafta" onClick={() => changeWeek(-1)}>‹</button><div><p className="eyebrow">HAFTA PLANI</p><h2>{shortDate(weekStart)} – {shortDate(dates[6])}</h2></div><button type="button" className="secondary-button" aria-label="Sonraki hafta" onClick={() => changeWeek(1)}>›</button></div>
+      <div className="planner-week" role="list" aria-label="Haftanın planı">{dates.map((day) => {
+        const dayItems = visibleItems.filter((item) => item.date === day);
+        return <section className={`planner-day${day === localDateKey() ? ' is-today' : ''}`} key={day} role="listitem"><div className="planner-day__head"><b>{new Intl.DateTimeFormat('tr-TR', { weekday: 'short' }).format(new Date(`${day}T12:00:00`))}</b><time>{new Intl.DateTimeFormat('tr-TR', { day: 'numeric' }).format(new Date(`${day}T12:00:00`))}</time></div>{dayItems.length ? dayItems.map((item) => <article className={`plan-item${item.completedSessionId ? ' is-complete' : ''}`} key={item.id}><span>{PLAN_KIND_ICONS[item.kind]}</span><b>{item.title}</b><small>{item.minutes} dk · {PLAN_KIND_LABELS[item.kind]}</small>{item.completedSessionId ? <small className="plan-done">✓ Kayda dönüştü</small> : <button type="button" className="plan-start" onClick={() => onStart(item)}>Kayda dönüştür →</button>}{!item.completedSessionId && <button type="button" className="plan-delete" aria-label={`${item.title} planını sil`} onClick={() => onDelete(item.id)}>Sil</button>}</article>) : <span className="planner-day__empty">Boş</span>}</section>;
+      })}</div>
+    </section>
+    <section className="card plan-form"><div className="section-head compact"><div><p className="eyebrow">YENİ PLAN</p><h2>Bir çalışma ekle</h2></div><span>＋</span></div><label className="field-label">Çalışma adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={60} placeholder="Örn. Teknik pas çalışması" /></label><div className="form-grid"><label className="field-label">Gün<input type="date" value={date} min={dates[0]} max={dates[6]} onChange={(event) => setDate(event.target.value)} /></label><label className="field-label">Tür<select value={kind} onChange={(event) => setKind(event.target.value as TrainingSession['kind'])}>{Object.entries(PLAN_KIND_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div><label className="field-label">Planlanan süre (dakika)<input type="number" min="0" max="600" step="1" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>{error && <p className="gps-import-error" role="alert">{error}</p>}<button type="button" className="primary-button full-button" onClick={add}>Haftaya ekle</button></section>
+  </div>;
+}
+
+function CustomGoalPanel({ data, goals, onAdd, onDelete }: { data: AppData; goals: CustomGoal[]; onAdd: (goal: Omit<CustomGoal, 'id' | 'createdAt'>) => void; onDelete: (id: string) => void }) {
+  const [title, setTitle] = useState('');
+  const [metric, setMetric] = useState<GoalMetric>('sessions');
+  const [period, setPeriod] = useState<GoalPeriod>('month');
+  const [target, setTarget] = useState('8');
+  const [error, setError] = useState('');
+  const add = () => {
+    const numericTarget = Number(target);
+    const max = metric === 'gpsKm' ? 1000 : 10_000;
+    if (!title.trim() || !Number.isFinite(numericTarget) || numericTarget <= 0 || numericTarget > max || (metric !== 'gpsKm' && !Number.isInteger(numericTarget)) || goals.length >= 10) {
+      setError('Başlık ve geçerli bir hedef gir; en fazla 10 kişisel hedef saklanabilir.');
+      return;
+    }
+    onAdd({ title: title.trim().slice(0, 48), metric, period, target: numericTarget });
+    setTitle(''); setError('');
+  };
+  return <section className="card custom-goals"><div className="section-head compact"><div><p className="eyebrow">KENDİ HEDEFİN</p><h2>Kişisel hedefler</h2></div><span>🎯</span></div><p className="field-help">Hedefler yalnızca seçtiğin kayıt türünü toplar. Dinlenme ve demo kayıtları ilerleme sayılmaz.</p>
+    {goals.length > 0 && <div className="custom-goal-list">{goals.map((goal) => {
+      const value = getCustomGoalProgress(goal, data);
+      const complete = value >= goal.target;
+      const display = goal.metric === 'gpsKm' ? formatNumber(value, 1) : formatNumber(value, 0);
+      return <article className="custom-goal-card" key={goal.id}><div className="custom-goal-card__top"><div><b>{goal.title}</b><small>{GOAL_PERIOD_LABELS[goal.period]} · {GOAL_METRIC_LABELS[goal.metric]}</small></div><button type="button" className="remove-exercise" aria-label={`${goal.title} hedefini sil`} onClick={() => onDelete(goal.id)}>×</button></div><div className="achievement-progress"><i style={{ width: `${Math.min(100, value / goal.target * 100)}%` }} /></div><div className="custom-goal-card__foot"><span>{display} / {formatNumber(goal.target, goal.metric === 'gpsKm' ? 1 : 0)} {GOAL_METRIC_LABELS[goal.metric]}</span><b>{complete ? '✓ Tamamlandı' : 'Devam ediyor'}</b></div></article>;
+    })}</div>}
+    <div className="custom-goal-form"><label className="field-label">Hedef adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={48} placeholder="Örn. Ayda 8 saha çalışması" /></label><div className="form-grid"><label className="field-label">Ölçüt<select value={metric} onChange={(event) => setMetric(event.target.value as GoalMetric)}>{Object.entries(GOAL_METRIC_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label><label className="field-label">Dönem<select value={period} onChange={(event) => setPeriod(event.target.value as GoalPeriod)}>{Object.entries(GOAL_PERIOD_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div><label className="field-label">Hedef miktarı<input type="number" min="0.1" max={metric === 'gpsKm' ? 1000 : 10000} step={metric === 'gpsKm' ? '0.1' : '1'} value={target} onChange={(event) => setTarget(event.target.value)} /></label>{error && <p className="gps-import-error" role="alert">{error}</p>}<button type="button" className="secondary-button full-button" onClick={add}>Kişisel hedef oluştur</button></div>
+  </section>;
 }

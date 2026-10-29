@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { exportJson, exportSessionsCsv, loadAppData, saveAppData } from './storage';
 import {
   EXERCISE_LIBRARY,
@@ -16,10 +17,12 @@ import {
   summarizeMuscleWorkload,
   XP_REWARDS,
 } from './training';
-import type { AppData, ExerciseSet, LoggedExercise, MatchEvent, MatchEventType, MuscleGroup, SessionKind, SkillTestRecord, TrainingSession, WorkoutTemplate } from './types';
-import { DrillLibrary, GpsActivityLibrary, ProgressAchievements } from './visual-features';
+import type { AppData, CustomGoal, ExerciseSet, LoggedExercise, MatchEvent, MatchEventType, MuscleGroup, PlayerCardAppearance, SessionKind, SkillTestRecord, TrainingSession, WeeklyPlanItem, WorkoutTemplate } from './types';
+import { DrillLibrary, ExerciseVisualLibrary, GpsActivityLibrary, ProgressAchievements, WeeklyPlanner } from './visual-features';
 import type { Drill } from './drills';
 import type { GpsActivity } from './types';
+import { PlayerCardEditor } from './PlayerCardEditor';
+import { DEFAULT_CARD_APPEARANCE } from './player-card';
 
 const GOALS = [
   { id: 'water', title: 'Günde en az 3 litre su iç', detail: 'Kramp önleme ve performans' },
@@ -72,9 +75,10 @@ const freshSetDraft = (): SetDraft => ({ reps: '10', weightKg: '0', rpe: '7', re
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadAppData());
   const [tab, setTab] = useState<'home' | 'calendar' | 'stats' | 'settings'>('home');
-  const [statsView, setStatsView] = useState<'overview' | 'muscles' | 'tests' | 'drills' | 'gps' | 'achievements'>('overview');
+  const [statsView, setStatsView] = useState<'overview' | 'muscles' | 'tests' | 'drills' | 'exercises' | 'gps' | 'achievements'>('overview');
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeKind, setActiveKind] = useState<SessionKind | null>(null);
+  const [activePlanId, setActivePlanId] = useState<string | null>(null);
   const [profileName, setProfileName] = useState('');
   const [showProfileForm, setShowProfileForm] = useState(false);
   const [position, setPosition] = useState('Orta saha');
@@ -143,11 +147,14 @@ export default function App() {
       workoutTemplates: [],
       skillTests: [],
       gpsActivities: [],
+      weeklyPlan: [],
+      customGoals: [],
     });
     setToast('Demo profili hazır. Veriler bu cihazda kalır.');
   };
 
   const openAction = (kind: SessionKind) => {
+    setActivePlanId(null);
     setActiveKind(kind);
     setSheetOpen(false);
     setTitle(kind === 'gym' ? 'Kuvvet antrenmanı' : kind === 'pitch' ? 'Teknik çalışma' : kind === 'match' ? 'Haftalık maç' : LABELS[kind]);
@@ -281,6 +288,39 @@ export default function App() {
     setToast(`${drill.name} saha kaydına hazırlandı.`);
   };
 
+  const startExercise = (exerciseId: string) => {
+    openAction('gym');
+    setExerciseDraft({ exerciseId });
+    setToast('Hareket seçildi; setlerini Gym kaydına ekle.');
+  };
+
+  const addPlanItem = (item: Omit<WeeklyPlanItem, 'id'>) => {
+    setData((current) => ({ ...current, weeklyPlan: [...(current.weeklyPlan ?? []), { ...item, id: crypto.randomUUID() }] }));
+    setToast('Çalışma haftalık plana eklendi.');
+  };
+
+  const deletePlanItem = (id: string) => setData((current) => ({ ...current, weeklyPlan: (current.weeklyPlan ?? []).filter((item) => item.id !== id) }));
+
+  const startPlanItem = (item: WeeklyPlanItem) => {
+    openAction(item.kind);
+    setActivePlanId(item.id);
+    setTitle(item.title);
+    setMinutes(String(item.minutes));
+    setToast('Plan kayda dönüştürülmeye hazır. Kaydedince gerçek seans olarak işaretlenir.');
+  };
+
+  const addCustomGoal = (goal: Omit<CustomGoal, 'id' | 'createdAt'>) => {
+    setData((current) => ({ ...current, customGoals: [...(current.customGoals ?? []), { ...goal, id: crypto.randomUUID(), createdAt: today }] }));
+    setToast('Kişisel hedef oluşturuldu.');
+  };
+
+  const deleteCustomGoal = (id: string) => setData((current) => ({ ...current, customGoals: (current.customGoals ?? []).filter((goal) => goal.id !== id) }));
+
+  const saveCardAppearance = (playerCard: PlayerCardAppearance) => {
+    setData((current) => ({ ...current, playerCard }));
+    setToast('Oyuncu kartı görünümü kaydedildi.');
+  };
+
   const saveSession = () => {
     if (!activeKind) return;
     const duration = Number(minutes);
@@ -300,7 +340,13 @@ export default function App() {
       ...(activeKind === 'match' && matchEvents.length ? { matchEvents: [...matchEvents].sort((a, b) => a.minute - b.minute) } : {}),
       ...(activeKind === 'gym' && loggedExercises.length ? { exercises: loggedExercises } : {}),
     };
-    setData((current) => ({ ...current, sessions: [session, ...current.sessions] }));
+    const planId = activePlanId;
+    setData((current) => ({
+      ...current,
+      sessions: [session, ...current.sessions],
+      weeklyPlan: planId ? (current.weeklyPlan ?? []).map((item) => item.id === planId ? { ...item, completedSessionId: session.id } : item) : current.weeklyPlan,
+    }));
+    setActivePlanId(null);
     setActiveKind(null);
     setRestRemaining(null);
     setToast(activeKind === 'gym' && loggedExercises.length === 0
@@ -324,7 +370,7 @@ export default function App() {
 
   const resetProfile = () => {
     if (!window.confirm('Bu cihazdaki HBK Spor profilini ve kayıtlarını sıfırlamak istiyor musun?')) return;
-    setData({ profile: null, demoMode: false, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [] });
+    setData({ profile: null, demoMode: false, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [], weeklyPlan: [], customGoals: [], playerCard: undefined });
     setToast('Profil sıfırlandı.');
   };
 
@@ -334,7 +380,8 @@ export default function App() {
         <div><p className="eyebrow">HBK SPOR · PERFORMANS GÜNLÜĞÜ</p><h1>Hoş geldin, {data.profile?.name}</h1></div>
         <button className="avatar" aria-label="Ayarlar" onClick={() => setTab('settings')}>{data.profile?.name.slice(0, 1).toUpperCase()}</button>
       </header>
-      <section className="player-card">
+      <section className={`player-card player-card--${data.playerCard?.theme ?? 'field'}`} style={{ '--card-photo-zoom': data.playerCard?.zoom ?? 1, '--card-photo-position': `${data.playerCard?.positionY ?? 42}%`, '--card-photo-saturation': data.playerCard?.saturation ?? DEFAULT_CARD_APPEARANCE.saturation, '--card-photo-brightness': data.playerCard?.brightness ?? DEFAULT_CARD_APPEARANCE.brightness } as CSSProperties}>
+        {data.playerCard?.photoDataUrl && <img className="player-card__photo" src={data.playerCard.photoDataUrl} alt="Oyuncu kartı fotoğrafı" />}
         <div className="player-card__head"><div><span className="muted-label">OYUNCU KARTI</span><h2>{data.profile?.position}</h2></div><span className="level-badge">🥉 Lv.{level} Çaylak</span></div>
         <div className="rating-row">
           <span><b>{weekDays.filter((day) => day.active).length}</b><small>AKTİF GÜN</small></span>
@@ -354,7 +401,7 @@ export default function App() {
   );
 
   const renderCalendar = () => (
-    <><header className="topbar"><div><p className="eyebrow">TAKVİM</p><h1>Antrenman günlüğü</h1></div><span className="streak">🔥 {streak} gün</span></header><section className="card momentum"><p className="eyebrow">BU HAFTA</p><h2>{weekDays.filter((day) => day.active).length} aktif gün</h2><div className="week-row">{weekDays.map((day) => <div key={day.key} className="week-day"><span>{day.label}</span><i className={day.active ? 'done' : ''}>{day.active ? '✓' : '·'}</i></div>)}</div></section><section className="card recent"><div className="section-head compact"><div><p className="eyebrow">KAYIT ARŞİVİ</p><h2>{data.sessions.length} çalışma</h2></div><button className="text-button" onClick={() => setSheetOpen(true)}>+ Ekle</button></div>{data.sessions.length ? data.sessions.map((session) => <SessionRow key={session.id} session={session} />) : <p className="empty-copy">Henüz kayıt yok. İlk çalışmanı ekle.</p>}</section></>
+    <><header className="topbar"><div><p className="eyebrow">TAKVİM</p><h1>Antrenman günlüğü</h1></div><span className="streak">🔥 {streak} gün</span></header><WeeklyPlanner items={data.weeklyPlan ?? []} onAdd={addPlanItem} onDelete={deletePlanItem} onStart={startPlanItem} /><section className="card momentum"><p className="eyebrow">BU HAFTA</p><h2>{weekDays.filter((day) => day.active).length} aktif gün</h2><div className="week-row">{weekDays.map((day) => <div key={day.key} className="week-day"><span>{day.label}</span><i className={day.active ? 'done' : ''}>{day.active ? '✓' : '·'}</i></div>)}</div></section><section className="card recent"><div className="section-head compact"><div><p className="eyebrow">KAYIT ARŞİVİ</p><h2>{data.sessions.length} çalışma</h2></div><button className="text-button" onClick={() => setSheetOpen(true)}>+ Ekle</button></div>{data.sessions.length ? data.sessions.map((session) => <SessionRow key={session.id} session={session} />) : <p className="empty-copy">Henüz kayıt yok. İlk çalışmanı ekle.</p>}</section></>
   );
 
   const renderStats = () => (
@@ -363,7 +410,7 @@ export default function App() {
       <div className="segmented-control" role="tablist" aria-label="İstatistik görünümü">
         {([
           ['overview', 'Genel'], ['muscles', 'Kas yükü'], ['tests', 'Testler'],
-          ['drills', 'Drill'], ['gps', 'GPS'], ['achievements', 'Rozetler'],
+          ['drills', 'Drill'], ['exercises', 'Hareket'], ['gps', 'GPS'], ['achievements', 'Rozetler'],
         ] as const).map(([view, label]) => <button key={view} role="tab" aria-selected={statsView === view} className={statsView === view ? 'active' : ''} onClick={() => setStatsView(view)}>{label}</button>)}
       </div>
       {statsView === 'muscles' ? (
@@ -372,23 +419,25 @@ export default function App() {
         <PerformanceTests records={data.skillTests ?? []} onSave={saveSkillTest} />
       ) : statsView === 'drills' ? (
         <DrillLibrary onUse={startDrill} />
+      ) : statsView === 'exercises' ? (
+        <ExerciseVisualLibrary onChoose={startExercise} />
       ) : statsView === 'gps' ? (
         <GpsActivityLibrary activities={data.gpsActivities ?? []} onImport={importGpsActivity} onDelete={deleteGpsActivity} />
       ) : statsView === 'achievements' ? (
-        <ProgressAchievements data={data} weekStart={weekStart} />
+        <ProgressAchievements data={data} weekStart={weekStart} onAddGoal={addCustomGoal} onDeleteGoal={deleteCustomGoal} />
       ) : (
         <>
           <div className="stats-grid"><StatCard icon="⚡" value={String(totalXp)} label="Toplam XP" /><StatCard icon="📅" value={String(data.sessions.length)} label="Toplam seans" /><StatCard icon="🔥" value={String(streak)} label="Seri günü" /><StatCard icon="⏱️" value={`${data.sessions.reduce((sum, session) => sum + session.minutes, 0)}′`} label="Toplam süre" /></div>
           <section className="card"><p className="eyebrow">ÇALIŞMA DAĞILIMI</p><h2>Seans türleri</h2>{ACTIONS.map((action) => { const count = data.sessions.filter((session) => session.kind === action.kind).length; return <div key={action.kind} className="bar-row"><span>{action.icon} {action.label.replace('+ ', '')}</span><div className="bar"><i style={{ width: `${data.sessions.length ? Math.min(100, (count / data.sessions.length) * 100) : 0}%` }} /></div><b>{count}</b></div>; })}</section>
           <section className="card"><div className="section-head compact"><div><p className="eyebrow">KUVVET DETAYI</p><h2>Kas gruplarını incele</h2></div><span>💪</span></div><p className="empty-copy">Hareket, set, tekrar, ağırlık ve algılanan efor bilgilerini kaydedip haftalık tahmini kas yükünü gör.</p><button className="secondary-button full-button" onClick={() => setStatsView('muscles')}>Kas yükü raporunu aç</button></section>
-          <div className="feature-shortcuts"><button onClick={() => setStatsView('drills')}><span>⚽</span><b>Görselli drill’ler</b><small>Saha çizimleriyle çalışma seç</small></button><button onClick={() => setStatsView('gps')}><span>⌁</span><b>GPS rotaları</b><small>GPX içe aktar ve haritada gör</small></button><button onClick={() => setStatsView('achievements')}><span>✦</span><b>İlerleme & rozetler</b><small>Kayıtlarından gelen kilometre taşları</small></button></div>
+          <div className="feature-shortcuts"><button onClick={() => setStatsView('drills')}><span>⚽</span><b>Görselli drill’ler</b><small>Saha çizimleriyle çalışma seç</small></button><button onClick={() => setStatsView('exercises')}><span>💪</span><b>Hareket galerisi</b><small>Kas grubuna göre ara</small></button><button onClick={() => setStatsView('gps')}><span>⌁</span><b>GPS rotaları</b><small>GPX içe aktar ve haritada gör</small></button><button onClick={() => setStatsView('achievements')}><span>✦</span><b>İlerleme & hedefler</b><small>Kişisel kilometre taşları</small></button></div>
         </>
       )}
     </>
   );
 
   const renderSettings = () => (
-    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>Yedekle ve dışa aktar</h2><p className="empty-copy">Kayıtların yalnızca bu cihazda saklanır. İstediğinde yedeğini alabilirsin.</p><div className="settings-actions"><button className="primary-button" onClick={() => exportJson(data)}>JSON yedeği al</button><button className="secondary-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></div></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.2.0</p></>
+    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><PlayerCardEditor profile={data.profile!} appearance={data.playerCard} stats={{ sessions: data.sessions.length, xp: totalXp, level }} onSave={saveCardAppearance} /><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>Yedekle ve dışa aktar</h2><p className="empty-copy">Kayıtların yalnızca bu cihazda saklanır. İstediğinde yedeğini alabilirsin.</p><div className="settings-actions"><button className="primary-button" onClick={() => exportJson(data)}>JSON yedeği al</button><button className="secondary-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></div></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.2.0</p></>
   );
 
   if (!data.profile) {
@@ -427,8 +476,8 @@ export default function App() {
         <button className={tab === 'settings' ? 'selected' : ''} onClick={() => setTab('settings')}><span>⚙</span><small>Ayarlar</small></button>
       </nav>
       {sheetOpen && <div className="scrim" onMouseDown={() => setSheetOpen(false)}><section className="action-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-handle" /><div className="section-head compact"><div><p className="eyebrow">YENİ KAYIT</p><h2 id="sheet-title">Bugün ne yaptın?</h2></div><button className="close-button" aria-label="Kapat" onClick={() => setSheetOpen(false)}>×</button></div><div className="action-list">{ACTIONS.map((action) => <button key={action.kind} onClick={() => openAction(action.kind)}><span className="action-icon">{action.icon}</span><span><b>{action.label}</b><small>{action.hint}</small></span><span className="route-arrow">›</span></button>)}</div></section></div>}
-      {activeKind && <div className="scrim" onMouseDown={() => { setActiveKind(null); setRestRemaining(null); }}><section className="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="section-head compact"><div><p className="eyebrow">{LABELS[activeKind].toUpperCase()} KAYDI</p><h2 id="session-title">Çalışmanı kaydet</h2></div><button className="close-button" aria-label="Kapat" onClick={() => { setActiveKind(null); setRestRemaining(null); }}>×</button></div>
+      {activeKind && <div className="scrim" onMouseDown={() => { setActiveKind(null); setActivePlanId(null); setRestRemaining(null); }}><section className="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="section-head compact"><div><p className="eyebrow">{LABELS[activeKind].toUpperCase()} KAYDI</p><h2 id="session-title">Çalışmanı kaydet</h2></div><button className="close-button" aria-label="Kapat" onClick={() => { setActiveKind(null); setActivePlanId(null); setRestRemaining(null); }}>×</button></div>
         <label className="field-label">Çalışma adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={60} /></label>
         {activeKind === 'match' && <><label className="field-label">Skor<input value={score} onChange={(event) => setScore(event.target.value)} placeholder="2-1" /></label><section className="match-event-editor"><div className="section-head compact"><div><p className="eyebrow">MAÇ RAPORU</p><h2>Olay zaman çizelgesi</h2></div><span>⚽</span></div><p className="field-help">Gol, asist, kart ve değişiklikleri gerçekleştiği dakikayla ekle. Bu alanlar oyuncu notudur; takım istatistiği yerine geçmez.</p><div className="match-event-form"><label className="field-label">Dakika<input aria-label="Olay dakikası" type="number" min="0" max="150" value={matchEventMinute} onChange={(event) => setMatchEventMinute(event.target.value)} placeholder="45" /></label><label className="field-label">Olay<select aria-label="Maç olayı" value={matchEventType} onChange={(event) => setMatchEventType(event.target.value as MatchEventType)}>{Object.entries(MATCH_EVENT_LABELS).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label></div><label className="field-label">Oyuncu / kısa not<input aria-label="Olay ayrıntısı" value={matchEventDetail} onChange={(event) => setMatchEventDetail(event.target.value)} maxLength={100} placeholder="Örn. asist: Deniz" /></label><button type="button" className="secondary-button full-button" onClick={addMatchEvent}>+ Maç olayını ekle</button>{matchEvents.length > 0 && <ol className="match-event-list">{matchEvents.map((event) => <li key={event.id}><time>{event.minute}′</time><span><b>{MATCH_EVENT_LABELS[event.type]}</b>{event.detail && <small>{event.detail}</small>}</span><button type="button" className="remove-exercise" aria-label={`${event.minute}. dakika olayını kaldır`} onClick={() => setMatchEvents((current) => current.filter((item) => item.id !== event.id))}>×</button></li>)}</ol>}</section></>}
         <label className="field-label">Süre (dakika)<input type="number" min="0" max="600" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>
