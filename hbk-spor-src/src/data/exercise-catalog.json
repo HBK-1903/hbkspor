@@ -1,0 +1,650 @@
+[
+  {
+    "id": "ex-leg-1",
+    "name": "Barbell Back Squat",
+    "category": "Bacak & Kalça",
+    "footballTag": "Temel Bacak Kuvveti",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-2",
+    "name": "Front Squat (Ön Squat)",
+    "category": "Bacak & Kalça",
+    "footballTag": "Dikey Sıçrama & Core",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-3",
+    "name": "Bulgarian Split Squat",
+    "category": "Bacak & Kalça",
+    "footballTag": "Tek Bacak Denge & Şut Gücü",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-4",
+    "name": "Romanian Deadlift (RDL)",
+    "category": "Bacak & Kalça",
+    "footballTag": "Hamstring Güçlendirme",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-5",
+    "name": "Nordic Hamstring Curl",
+    "category": "Bacak & Kalça",
+    "footballTag": "Sakatlık Kalkanı (Hamstring)",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-6",
+    "name": "Conventional Deadlift",
+    "category": "Bacak & Kalça",
+    "footballTag": "Tüm Arka Zincir Gücü",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-7",
+    "name": "Trap Bar Deadlift",
+    "category": "Bacak & Kalça",
+    "footballTag": "Patlayıcı Çıkış Gücü",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-8",
+    "name": "Dumbbell Walking Lunge",
+    "category": "Bacak & Kalça",
+    "footballTag": "Koşu Mekaniği & Stabilite",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-9",
+    "name": "Barbell Hip Thrust",
+    "category": "Bacak & Kalça",
+    "footballTag": "Sprint İtme Gücü (Glute)",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-10",
+    "name": "Bacak Press (Leg Press)",
+    "category": "Bacak & Kalça",
+    "footballTag": "Bacak Hacim & Hipertrofi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-11",
+    "name": "Leg Extension (Ön Bacak)",
+    "category": "Bacak & Kalça",
+    "footballTag": "Diz Bağları Dayanıklılığı",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-12",
+    "name": "Lying Leg Curl (Arka Bacak)",
+    "category": "Bacak & Kalça",
+    "footballTag": "Hamstring İzolasyonu",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-13",
+    "name": "Standing Calf Raise (Ayakta Kalf)",
+    "category": "Bacak & Kalça",
+    "footballTag": "Aşil Tendonu & İlk Adım",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-14",
+    "name": "Seated Calf Raise (Oturarak Kalf)",
+    "category": "Bacak & Kalça",
+    "footballTag": "Soleus Dayanıklılığı",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-15",
+    "name": "Tibialis Raise (Kaval Kemiği)",
+    "category": "Bacak & Kalça",
+    "footballTag": "Kaval Koruma & Şin Splints",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-leg-16",
+    "name": "Copenhagen Adductor Plank",
+    "category": "Bacak & Kalça",
+    "footballTag": "Kasık Koruma (Pubis Önleme)",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-ch-1",
+    "name": "Barbell Bench Press",
+    "category": "Göğüs",
+    "footballTag": "İtme Gücü & Gövde Sertliği",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-ch-2",
+    "name": "Incline Dumbbell Press",
+    "category": "Göğüs",
+    "footballTag": "Üst Göğüs & Omuz Dengesi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-ch-3",
+    "name": "Incline Barbell Bench Press",
+    "category": "Göğüs",
+    "footballTag": "Açılı İtme Kuvveti",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-ch-4",
+    "name": "Flat Dumbbell Press",
+    "category": "Göğüs",
+    "footballTag": "Unilateral Göğüs Eşitleme",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-ch-5",
+    "name": "Dumbbell Chest Fly",
+    "category": "Göğüs",
+    "footballTag": "Göğüs Esnekliği & Açılış",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-ch-6",
+    "name": "Cable Crossover (Kablo Çapraz)",
+    "category": "Göğüs",
+    "footballTag": "Sürekli Gerilim & İzolasyon",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-ch-7",
+    "name": "Dips (Göğüs Açılı)",
+    "category": "Göğüs",
+    "footballTag": "Öz Ağırlık Gücü",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-ch-8",
+    "name": "Pec Deck Machine Fly",
+    "category": "Göğüs",
+    "footballTag": "Güvenli Göğüs Sıkıştırma",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-ch-9",
+    "name": "Landmine Chest Press",
+    "category": "Göğüs",
+    "footballTag": "Omuz Dostu İtme & Rotasyon",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-ch-10",
+    "name": "Patlayıcı Şınav (Plyo Push-up)",
+    "category": "Göğüs",
+    "footballTag": "Reaktif Güç Üretimi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-bk-1",
+    "name": "Barbell Bent-Over Row",
+    "category": "Sırt & Kanat",
+    "footballTag": "Postür & Omuz Omuza Dayanıklılık",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-bk-2",
+    "name": "Barfiks (Pull-up / Geniş Tutuş)",
+    "category": "Sırt & Kanat",
+    "footballTag": "Gövde Bağıl Kuvveti",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-bk-3",
+    "name": "Lat Pulldown (Geniş & Dar)",
+    "category": "Sırt & Kanat",
+    "footballTag": "Kanat Gelişimi & Çekiş",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-bk-4",
+    "name": "Seated Cable Row (Kablo Çekiş)",
+    "category": "Sırt & Kanat",
+    "footballTag": "Orta Sırt & Kürek Kemikleri",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-bk-5",
+    "name": "Tek Kol Dumbbell Row",
+    "category": "Sırt & Kanat",
+    "footballTag": "Asimetrik Sırt Dengesi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-bk-6",
+    "name": "T-Bar Row",
+    "category": "Sırt & Kanat",
+    "footballTag": "Ağır Çekiş Gücü",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-bk-7",
+    "name": "Face Pull (Kablo Omuz Çekiş)",
+    "category": "Sırt & Kanat",
+    "footballTag": "Arka Omuz & Sakatlık Önleme",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-bk-8",
+    "name": "Chest Supported Dumbbell Row",
+    "category": "Sırt & Kanat",
+    "footballTag": "Belsiz Saf Sırt Çekişi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-bk-9",
+    "name": "Straight Arm Lat Pulldown",
+    "category": "Sırt & Kanat",
+    "footballTag": "Gövde Bütünlüğü & Kanat İzolasyon",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-bk-10",
+    "name": "Barbell / Dumbbell Shrug",
+    "category": "Sırt & Kanat",
+    "footballTag": "Boyun & Trapez Darbe Emici",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-bk-11",
+    "name": "Back Extension (Hiperextension)",
+    "category": "Sırt & Kanat",
+    "footballTag": "Bel & Omurga Dayanıklılığı",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-sh-1",
+    "name": "Overhead Barbell Military Press",
+    "category": "Omuz",
+    "footballTag": "Baş Üstü Kuvveti",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-sh-2",
+    "name": "Dumbbell Shoulder Press",
+    "category": "Omuz",
+    "footballTag": "Denge & Omuz Hacmi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-sh-3",
+    "name": "Dumbbell Lateral Raise (Yana Açış)",
+    "category": "Omuz",
+    "footballTag": "Omuz Genişliği & Omuz Omuza Üstünlük",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-sh-4",
+    "name": "Cable Lateral Raise",
+    "category": "Omuz",
+    "footballTag": "Sabit Direnç Yana Açış",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-sh-5",
+    "name": "Arnold Press",
+    "category": "Omuz",
+    "footballTag": "Üç Başlı Omuz Rotasyonu",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-sh-6",
+    "name": "Front Dumbbell Raise (Öne Açış)",
+    "category": "Omuz",
+    "footballTag": "Ön Omuz & İtme",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-sh-7",
+    "name": "Rear Delt Dumbbell Fly",
+    "category": "Omuz",
+    "footballTag": "Arka Omuz & Postür",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-sh-8",
+    "name": "Reverse Pec Deck Fly",
+    "category": "Omuz",
+    "footballTag": "Postür Düzeltme",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-sh-9",
+    "name": "Upright Row (Çeneye Çekiş)",
+    "category": "Omuz",
+    "footballTag": "Yan Omuz & Trapez",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-sh-10",
+    "name": "Landmine Push Press",
+    "category": "Omuz",
+    "footballTag": "Tek Kol Patlayıcı Omuz İtişi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-arm-1",
+    "name": "Barbell Biceps Curl",
+    "category": "Kol",
+    "footballTag": "Kol Çekiş Gücü",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-arm-2",
+    "name": "Dumbbell Hammer Curl (Çekiç)",
+    "category": "Kol",
+    "footballTag": "Bilek & Ön Kol Tutuş Gücü",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-arm-3",
+    "name": "Incline Dumbbell Biceps Curl",
+    "category": "Kol",
+    "footballTag": "Uzun Baş Biceps Esnemesi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-arm-4",
+    "name": "Preacher Curl (Vaiz Sehpası)",
+    "category": "Kol",
+    "footballTag": "İzole Biceps Tepe Noktası",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-arm-5",
+    "name": "Cable Rope Biceps Curl",
+    "category": "Kol",
+    "footballTag": "Sürekli Biceps Gerilimi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-arm-6",
+    "name": "Triceps Halat Pushdown",
+    "category": "Kol",
+    "footballTag": "Dirsek Stabilitesi & Kol İtme",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-arm-7",
+    "name": "Skull Crusher (Alına Triceps)",
+    "category": "Kol",
+    "footballTag": "Triceps Uzun Baş Gücü",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-arm-8",
+    "name": "Overhead Dumbbell Triceps Extension",
+    "category": "Kol",
+    "footballTag": "Baş Üstü İtme Gücü",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-arm-9",
+    "name": "Dips (Triceps Odaklı Dar)",
+    "category": "Kol",
+    "footballTag": "Vücut Ağırlığı İtme",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-arm-10",
+    "name": "Close-Grip Bench Press",
+    "category": "Kol",
+    "footballTag": "Ağır Triceps İtme Gücü",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-1",
+    "name": "Plank (Statik Core)",
+    "category": "Karın & Core",
+    "footballTag": "Gövde Bütünlüğü & Denge",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-2",
+    "name": "Side Plank (Yan Plank)",
+    "category": "Karın & Core",
+    "footballTag": "Yanal Direnç & Bel Desteği",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-3",
+    "name": "Hanging Leg Raise (Barfiks Karın)",
+    "category": "Karın & Core",
+    "footballTag": "Alt Karın & Kalça Fleksör",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-4",
+    "name": "Ab Wheel Rollout (Karın Tekerleği)",
+    "category": "Karın & Core",
+    "footballTag": "Anti-Ekstansiyon Core Zırhı",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-5",
+    "name": "Cable Woodchopper (Oduncu)",
+    "category": "Karın & Core",
+    "footballTag": "Şut & Pas Dönüş Gücü",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-6",
+    "name": "Pallof Press (Anti-Rotasyon)",
+    "category": "Karın & Core",
+    "footballTag": "Omuz Omuza Sarsılmama",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-7",
+    "name": "Russian Twist (Ağırlıklı)",
+    "category": "Karın & Core",
+    "footballTag": "Oblik & Rotasyonel Kuvvet",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-8",
+    "name": "Dragon Flag",
+    "category": "Karın & Core",
+    "footballTag": "İleri Seviye Gövde Kilitleme",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-9",
+    "name": "Bicycle Crunch (Bisiklet Karın)",
+    "category": "Karın & Core",
+    "footballTag": "Çapraz Karın Koordinasyonu",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-10",
+    "name": "Dead Bug (Ölü Böcek Egzersizi)",
+    "category": "Karın & Core",
+    "footballTag": "Zıt Kol/Bacak Koordinasyonu",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-11",
+    "name": "Bird Dog",
+    "category": "Karın & Core",
+    "footballTag": "Derin Omurga Stabilitesi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-cr-12",
+    "name": "Mountain Climber (Dağ Tırmanışı)",
+    "category": "Karın & Core",
+    "footballTag": "Kardiyo & Hızlı Ayak Çekişi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-1",
+    "name": "Box Jump (Kutuya Sıçrama)",
+    "category": "Futbol & Mobilite",
+    "footballTag": "Hava Topu & Patlayıcı Sıçrama",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-2",
+    "name": "Broad Jump (İleri Uzun Atlama)",
+    "category": "Futbol & Mobilite",
+    "footballTag": "Yatay Çıkış & Hızlanma",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-3",
+    "name": "Single-Leg Hop & Stick",
+    "category": "Futbol & Mobilite",
+    "footballTag": "Tek Ayak Yere İnme (ÖÇB Kalkanı)",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-4",
+    "name": "Kettlebell Swing",
+    "category": "Futbol & Mobilite",
+    "footballTag": "Hızlı Kalça Patlaması (Glute Snap)",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-5",
+    "name": "Cossack Squat (Yanal Mobilite)",
+    "category": "Futbol & Mobilite",
+    "footballTag": "Kalça Açıklığı & Ani Yön Değiştirme",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-6",
+    "name": "90/90 Kalça Mobilizasyonu",
+    "category": "Futbol & Mobilite",
+    "footballTag": "İç/Dış Kalça Rotasyonu",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-7",
+    "name": "Spiderman Lunge & Thoracic Rotation",
+    "category": "Futbol & Mobilite",
+    "footballTag": "Dünyanın En İyi Esnemesi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-8",
+    "name": "Köpük Rulo (Foam Roller) Masajı",
+    "category": "Futbol & Mobilite",
+    "footballTag": "Miyofasiyal Gevşeme & Toparlanma",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-9",
+    "name": "Pogo Jumps (Ayak Bileği Yaylanma)",
+    "category": "Futbol & Mobilite",
+    "footballTag": "Aşil Esnekliği & Reaktif Zemin İtişi",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-10",
+    "name": "Med Ball Rotational Slam (Top Fırlatma)",
+    "category": "Futbol & Mobilite",
+    "footballTag": "Gövde Rotasyon Patlayıcılığı",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-11",
+    "name": "Lateral Bound (Yanal Sıçrama)",
+    "category": "Futbol & Mobilite",
+    "footballTag": "Çalım & Yanal Patlayıcılık",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  },
+  {
+    "id": "ex-fb-12",
+    "name": "Banded Monster Walk (Direnç Lastiği)",
+    "category": "Futbol & Mobilite",
+    "footballTag": "Kalça Dış Kasları Isınması",
+    "isDefault": true,
+    "createdAt": "2026-01-01"
+  }
+]
