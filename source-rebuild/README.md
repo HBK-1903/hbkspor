@@ -36,6 +36,11 @@ Dağıtılabilir dosyalar `dist/` dizinine yazılır. Cloudflare Pages gibi stat
 - Maç kaydına dakika bazlı gol, asist, kart, değişiklik ve not olayları eklenir; maç günlüğünde zaman sırasıyla görünür.
 - İstatistikler → **Testler** ekranında sprint, çeviklik, sıçrama ve dayanıklılık şablonlarından sonuç girilir; geçmiş ve kişisel en iyi aynı test protokolü içinde listelenir.
 - Günlük hedef işaretleri yerel takvim tarihine göre saklanır.
+- İstatistikler → **Koç raporu** bölümünde son 4/8/12 haftayı ve rapora eklenecek seans, GPS, test ve maç alanlarını seçip sistem yazdırma penceresinden PDF olarak kaydedebilirsin. Rapor klinik veya sakatlık değerlendirmesi değildir.
+- İstatistikler → **Sezon günlüğü** seans, maç, test ve GPX kayıtlarını yıl bazında kronolojik sıralar; demo verileri kişisel günlüğe/rapora karışmaz.
+- Maç kaydında en fazla 6 JPG/PNG/WebP fotoğrafı (8 MB'a kadar, cihazda küçültülür) veya 30 saniyeye kadar MP4/WebM klip (25 MB'a kadar) iliştirilebilir. Bu dosyalar ayrı IndexedDB deposunda yalnızca cihazda tutulur; JSON/CSV yedeğine eklenmez ve yeni tarayıcıya otomatik taşınmaz.
+- **Ayarlar → Bildirim tercihleri** bölümünde uygulama açıkken plan saati öncesi hatırlatma (0/15/30/60 dk), isteğe bağlı günlük hatırlatma ve Pazar özeti açılabilir. Sistem izni kullanıcıdan açıkça istenir. Tarayıcı arka plan zamanlayıcıları geciktirebilir; uygulama kapalıyken güvenilir anında push için ayrıca sunucu/push altyapısı gerekir.
+- Seans ses notları, maç albümü ve özel çizimler yerel depolarda tutulur; JSON/CSV dışa aktarımı bunların ham dosyalarını taşımaz.
 
 ## Kaynak düzeni ve veri
 

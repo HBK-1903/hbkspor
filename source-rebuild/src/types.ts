@@ -84,6 +84,7 @@ export interface TrainingSession {
   matchEvents?: MatchEvent[];
   exercises?: LoggedExercise[];
   voiceNoteId?: string;
+  matchMediaIds?: string[];
 }
 
 export interface GpsRoutePoint {
@@ -118,6 +119,7 @@ export interface CustomGoal {
 export interface WeeklyPlanItem {
   id: string;
   date: string;
+  time: string;
   kind: SessionKind;
   title: string;
   minutes: number;
@@ -146,6 +148,15 @@ export interface PlayerCardAppearance {
   brightness: number;
 }
 
+export interface NotificationPreferences {
+  enabled: boolean;
+  planReminders: boolean;
+  leadMinutes: 0 | 15 | 30 | 60;
+  dailyReminder: boolean;
+  dailyTime: string;
+  weeklySummary: boolean;
+}
+
 export interface AppData {
   profile: PlayerProfile | null;
   /** Demo fixture is intentionally excluded from achievement/progress claims. */
@@ -163,4 +174,6 @@ export interface AppData {
   customGoals?: CustomGoal[];
   playerCard?: PlayerCardAppearance;
   customDrills?: CustomDrill[];
+  notificationPreferences?: NotificationPreferences;
+  notificationSentKeys?: string[];
 }

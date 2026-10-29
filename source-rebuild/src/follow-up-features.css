@@ -23,6 +23,7 @@
 .comparison-row { display:grid; grid-template-columns:44px minmax(0,1fr) 26px; align-items:center; gap:6px; margin-top:10px; }
 .comparison-row>small { color:#aab8ab; font-size:8px; }.comparison-row>b { color:#dce8d9; font-size:8px; text-align:right; font-variant-numeric:tabular-nums; }
 .comparison-track { height:7px; overflow:hidden; border-radius:9px; background:#2a352e; }.comparison-track i { display:block; height:100%; min-width:0; border-radius:inherit; }.comparison-track i.current { background:linear-gradient(90deg,#83bd4a,#d4ff8b); }.comparison-track i.previous { background:linear-gradient(90deg,#4284a4,#7edcff); }
+.plan-form .planner-form-grid { grid-template-columns:1.2fr .8fr; gap:0 8px; }.plan-form .planner-form-grid>label:nth-child(3) { grid-column:1/-1; }
 .custom-drill-builder { overflow:hidden; }.custom-drill-builder .section-head h2 small { color:#a9b8a9; font-size:9px; font-weight:700; letter-spacing:0; }
 .drill-builder-field { display:block; width:100%; height:auto; margin:10px 0; border-radius:15px; cursor:crosshair; touch-action:manipulation; }
 .builder-tools { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
