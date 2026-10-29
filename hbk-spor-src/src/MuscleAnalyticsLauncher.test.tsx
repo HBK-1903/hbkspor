@@ -34,7 +34,7 @@ describe('kas analizi entry placement', () => {
     const { page, navButtons, mount } = installLegacyAppShell();
     render(<MuscleAnalyticsLauncher />, { container: mount });
 
-    expect(screen.queryByRole('button', { name: 'Kas analizi raporunu aç' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Performans analiz merkezini aç' })).toBeNull();
 
     await act(async () => {
       navButtons[0].removeAttribute('aria-current');
@@ -42,7 +42,7 @@ describe('kas analizi entry placement', () => {
       page.innerHTML = '<header id="analysis-header"><div><h1>Analiz</h1><p>Neyi geliştiriyorum?</p></div><button>Tüm Kayıtlar</button></header><div id="analysis-content">Analiz içeriği</div>';
     });
 
-    const entry = await screen.findByRole('button', { name: 'Kas analizi raporunu aç' });
+    const entry = await screen.findByRole('button', { name: 'Performans analiz merkezini aç' });
     expect(entry.getAttribute('aria-haspopup')).toBe('dialog');
     expect(entry.parentElement?.previousElementSibling?.id).toBe('analysis-header');
 
@@ -52,6 +52,6 @@ describe('kas analizi entry placement', () => {
       page.innerHTML = '<header><div><h1>Ana</h1></div></header><div>Ana sayfa</div>';
     });
 
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Kas analizi raporunu aç' })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Performans analiz merkezini aç' })).toBeNull());
   });
 });

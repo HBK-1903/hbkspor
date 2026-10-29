@@ -3,6 +3,8 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import catalogJson from './data/exercise-catalog.json';
 import { currentWeekStart, addLocalDays, formatDay, localDayKey } from './dates';
 import { loadSetEffortMetadata, readLegacyTrainingData, saveSetEffortMetadata, setMetadataKey } from './db';
+import { loadImportedGpsActivities, parseGpsDeviceFile, readSupplementalAnalytics, saveImportedGpsActivities, MAX_GPX_BYTES } from './analytics-data';
+import ExtendedAnalyticsView, { type AnalyticsSection } from './ExtendedAnalyticsView';
 import {
   flattenGymWorkouts,
   MUSCLE_LABELS,
@@ -10,26 +12,21 @@ import {
   summarizeMuscleLoads,
   type FlattenedSet,
 } from './muscles';
-import type { ExerciseDefinition, LegacyWorkout, MuscleGroup, MuscleLoad, SetEffortStore } from './types';
+import type { AnalyticsData, ExerciseDefinition, GpsActivity, LegacyWorkout, MuscleGroup, MuscleLoad, SetEffortStore } from './types';
 
 const STATIC_CATALOG = catalogJson as ExerciseDefinition[];
-type RangeWeeks = 1 | 4 | 12;
-
-interface AnalysisData {
-  workouts: LegacyWorkout[];
-  catalog: ExerciseDefinition[];
-  dbVersion: number;
-}
+type RangeWeeks = 4 | 8 | 12;
 
 export default function MuscleAnalyticsLauncher() {
   const [open, setOpen] = useState(false);
-  const [data, setData] = useState<AnalysisData | null>(null);
+  const [data, setData] = useState<AnalyticsData | null>(null);
   const [effort, setEffort] = useState<SetEffortStore>(() => loadSetEffortMetadata());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [weeks, setWeeks] = useState<RangeWeeks>(4);
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup | null>(null);
   const [selectedExercise, setSelectedExercise] = useState('');
+  const [section, setSection] = useState<AnalyticsSection>('overview');
   const closeButton = useRef<HTMLButtonElement>(null);
   const effortFileInput = useRef<HTMLInputElement>(null);
 
@@ -40,7 +37,8 @@ export default function MuscleAnalyticsLauncher() {
       const result = await readLegacyTrainingData();
       const catalogById = new Map(STATIC_CATALOG.map((item) => [item.id, item]));
       for (const item of result.exercises) catalogById.set(item.id, item);
-      setData({ workouts: result.workouts, catalog: [...catalogById.values()], dbVersion: result.dbVersion });
+      const supplemental = readSupplementalAnalytics(result.workouts);
+      setData({ ...result, catalog: [...catalogById.values()], ...supplemental });
       setEffort(loadSetEffortMetadata());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Antrenman verileri okunamadı.');
@@ -82,9 +80,9 @@ export default function MuscleAnalyticsLauncher() {
       const entryButton = document.createElement('button');
       entryButton.type = 'button';
       entryButton.className = 'muscle-analysis-entry';
-      entryButton.setAttribute('aria-label', 'Kas analizi raporunu aç');
+      entryButton.setAttribute('aria-label', 'Performans analiz merkezini aç');
       entryButton.setAttribute('aria-haspopup', 'dialog');
-      entryButton.innerHTML = '<span class="muscle-analysis-entry__icon" aria-hidden="true">💪</span><span class="muscle-analysis-entry__copy"><small>GÜÇ &amp; PERFORMANS</small><strong>Kas analizi</strong><span>Kas dağılımı, antrenman yükü ve set ayrıntıların</span></span><span class="muscle-analysis-entry__action" aria-hidden="true">Aç <i>↗</i></span>';
+      entryButton.innerHTML = '<span class="muscle-analysis-entry__icon" aria-hidden="true">📊</span><span class="muscle-analysis-entry__copy"><small>GÜÇ &amp; PERFORMANS</small><strong>Performans analizi</strong><span>Kas, maç, GPS, toparlanma ve kişisel rekorların</span></span><span class="muscle-analysis-entry__action" aria-hidden="true">Aç <i>↗</i></span>';
       entryButton.addEventListener('click', () => setOpen(true));
       entry.append(entryButton);
       header.insertAdjacentElement('afterend', entry);
@@ -127,13 +125,40 @@ export default function MuscleAnalyticsLauncher() {
     else setError('');
   };
 
+  const importGpsFile = async (file?: File) => {
+    if (!file) return;
+    try {
+      if (file.size > MAX_GPX_BYTES) throw new Error('GPS dosyası 20 MB sınırını aşıyor.');
+      const imported = await parseGpsDeviceFile(file);
+      const saved = saveImportedGpsActivities([imported, ...loadImportedGpsActivities()]);
+      if (!saved) throw new Error('GPX rotası cihazda saklanamadı; depolama alanını kontrol et.');
+      setData((current) => current ? {
+        ...current,
+        gpsActivities: [imported, ...current.gpsActivities.filter((activity) => activity.id !== imported.id)].sort((a, b) => b.date.localeCompare(a.date)),
+      } : current);
+      setError('GPS dosyası içe aktarıldı. Rota ve özet yalnızca bu cihazda saklanıyor.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'GPS dosyası içe aktarılamadı.');
+    }
+  };
+
+  const deleteGpsImport = (id: string) => {
+    const remaining = loadImportedGpsActivities().filter((activity) => activity.id !== id);
+    if (!saveImportedGpsActivities(remaining)) {
+      setError('GPS dosyası kaydı cihazdan silinemedi. Tarayıcı depolama alanını kontrol et.');
+      return;
+    }
+    setData((current) => current ? { ...current, gpsActivities: current.gpsActivities.filter((activity) => activity.id !== id) } : current);
+    setError('İçe aktarılan GPS rotası bu cihazdan silindi.');
+  };
+
   const exportEffort = () => {
-    const payload = { schemaVersion: 1, exportedAt: new Date().toISOString(), setEffort: effort };
+    const payload = { schemaVersion: 2, exportedAt: new Date().toISOString(), setEffort: effort, gpsImports: loadImportedGpsActivities() };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `hbk-spor-set-eforu-${localDayKey()}.json`;
+    anchor.download = `hbk-spor-analiz-yedegi-${localDayKey()}.json`;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
@@ -141,10 +166,10 @@ export default function MuscleAnalyticsLauncher() {
   const importEffort = async (file?: File) => {
     if (!file) return;
     try {
-      if (file.size > 2_000_000) throw new Error('Yedek dosyası 2 MB sınırını aşıyor.');
+      if (file.size > 10_000_000) throw new Error('Analiz yedeği 10 MB sınırını aşıyor.');
       const parsed: unknown = JSON.parse(await file.text());
-      if (!parsed || typeof parsed !== 'object' || !('schemaVersion' in parsed) || parsed.schemaVersion !== 1 || !('setEffort' in parsed)) {
-        throw new Error('Bu dosya HBK Spor set eforu yedeği değil veya biçimi desteklenmiyor.');
+      if (!parsed || typeof parsed !== 'object' || !('schemaVersion' in parsed) || ![1, 2].includes(Number(parsed.schemaVersion)) || !('setEffort' in parsed)) {
+        throw new Error('Bu dosya HBK Spor analiz yedeği değil veya biçimi desteklenmiyor.');
       }
       const incoming = parsed.setEffort;
       if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) throw new Error('Yedek içindeki kayıtlar geçersiz.');
@@ -160,11 +185,20 @@ export default function MuscleAnalyticsLauncher() {
           ...(typeof item.restSeconds === 'number' ? { restSeconds: item.restSeconds } : {}),
         };
       }
-      if (!window.confirm(`${Object.keys(valid).length} set kaydı içe aktarılacak. Aynı setlere ait mevcut ek bilgiler yedektekilerle değişebilir. Devam edilsin mi?`)) return;
+      const gpsImports = 'gpsImports' in parsed && Array.isArray(parsed.gpsImports)
+        ? parsed.gpsImports.filter((activity): activity is GpsActivity => Boolean(activity && typeof activity === 'object' && 'source' in activity && ['gpx', 'tcx', 'fit'].includes(String(activity.source))))
+        : [];
+      if (!window.confirm(`${Object.keys(valid).length} set kaydı ve ${gpsImports.length} içe aktarılmış GPS rotası yedekle birleştirilecek. Aynı setlere ait ek bilgiler yedektekilerle değişebilir. Devam edilsin mi?`)) return;
       const next = { ...effort, ...valid };
       if (!saveSetEffortMetadata(next)) throw new Error('Yedek tarayıcıda saklanamadı.');
       setEffort(next);
-      setError('Set eforu yedeği bu cihazdaki kayıtlarla birleştirildi.');
+      if ('gpsImports' in parsed && Array.isArray(parsed.gpsImports)) {
+        const byId = new Map([...loadImportedGpsActivities(), ...gpsImports].map((activity) => [activity.id, activity]));
+        if (!saveImportedGpsActivities([...byId.values()])) throw new Error('Rota yedeği tarayıcıda saklanamadı.');
+        const mergedImports = loadImportedGpsActivities();
+        setData((current) => current ? { ...current, gpsActivities: [...current.gpsActivities.filter((activity) => activity.source === 'app'), ...mergedImports].sort((a, b) => b.date.localeCompare(a.date)) } : current);
+      }
+      setError('Analiz yedeği bu cihazdaki kayıtlarla birleştirildi.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Yedek içe aktarılamadı.');
     } finally {
@@ -177,21 +211,53 @@ export default function MuscleAnalyticsLauncher() {
       {open && <section className="muscle-overlay" role="dialog" aria-modal="true" aria-labelledby="muscle-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
         <div className="muscle-panel">
           <header className="muscle-panel__header">
-            <div><p className="muscle-eyebrow">HBK SPOR · PERFORMANS</p><h1 id="muscle-title">Kas yükü analizi</h1><p>Mevcut gym kayıtların, aynı cihazdaki IndexedDB’den okunur.</p></div>
-            <div className="muscle-panel__actions"><button type="button" className="muscle-refresh" onClick={() => void refresh()} disabled={loading}>{loading ? 'Yükleniyor…' : '↻ Yenile'}</button><button ref={closeButton} type="button" className="muscle-close" onClick={() => setOpen(false)} aria-label="Kas analizini kapat">×</button></div>
+            <div><p className="muscle-eyebrow">HBK SPOR · PERFORMANS</p><h1 id="muscle-title">Performans analizi</h1><p>Antrenman, maç, test, toparlanma ve GPS geçmişin tek yerde.</p></div>
+            <div className="muscle-panel__actions"><button type="button" className="muscle-refresh" onClick={() => void refresh()} disabled={loading}>{loading ? 'Yükleniyor…' : '↻ Yenile'}</button><button ref={closeButton} type="button" className="muscle-close" onClick={() => setOpen(false)} aria-label="Performans analizini kapat">×</button></div>
           </header>
           {error && <div className="muscle-alert" role="alert">{error}</div>}
-          {data && <div className="muscle-data-tools"><span>Set RPE/dinlenme bilgisi ayrı yedeklenir.</span><button type="button" onClick={exportEffort}>Set yedeğini indir</button><button type="button" onClick={() => effortFileInput.current?.click()}>Set yedeğini içe aktar</button><input ref={effortFileInput} type="file" accept="application/json,.json" hidden onChange={(event) => void importEffort(event.target.files?.[0])} /></div>}
-          {loading && !data ? <div className="muscle-empty" role="status">Antrenman kayıtların yükleniyor…</div> : data ? <MuscleReport data={data} effort={effort} weeks={weeks} setWeeks={setWeeks} selectedMuscle={selectedMuscle} setSelectedMuscle={setSelectedMuscle} selectedExercise={selectedExercise} setSelectedExercise={setSelectedExercise} onEffortChange={updateEffort} /> : <div className="muscle-empty"><h2>Veriler okunamadı</h2><p>Uygulamanın ana ekranı kullanılabilir. Kas analizini tekrar yenileyebilirsin.</p><button type="button" className="muscle-primary" onClick={() => void refresh()}>Tekrar dene</button></div>}
-          <footer className="muscle-footer">Bu ek modül mevcut antrenman kayıtlarını değiştirmez. RPE ve dinlenme bilgileri ayrı bir yerel anahtarda tutulur.</footer>
+          {data && <div className="muscle-data-tools"><span>Set RPE ve içe aktarılan GPS rotaları yerel analiz yedeğine dahil edilir.</span><button type="button" onClick={exportEffort}>Analiz yedeğini indir</button><button type="button" onClick={() => effortFileInput.current?.click()}>Analiz yedeğini içe aktar</button><input ref={effortFileInput} type="file" accept="application/json,.json" hidden onChange={(event) => void importEffort(event.target.files?.[0])} /></div>}
+          {loading && !data ? <div className="muscle-empty" role="status">Antrenman kayıtların yükleniyor…</div> : data ? <AnalyticsWorkspace data={data} effort={effort} weeks={weeks} setWeeks={setWeeks} section={section} setSection={setSection} selectedMuscle={selectedMuscle} setSelectedMuscle={setSelectedMuscle} selectedExercise={selectedExercise} setSelectedExercise={setSelectedExercise} onEffortChange={updateEffort} onGpsImport={importGpsFile} onDeleteGps={deleteGpsImport} /> : <div className="muscle-empty"><h2>Veriler okunamadı</h2><p>Uygulamanın ana ekranı kullanılabilir. Analizi tekrar yenileyebilirsin.</p><button type="button" className="muscle-primary" onClick={() => void refresh()}>Tekrar dene</button></div>}
+          <footer className="muscle-footer">Mevcut uygulama kayıtları salt okunur. Ek RPE bilgisi ve içe aktarılan GPS dosyaları ayrı yerel anahtarlarda saklanır.</footer>
         </div>
       </section>}
     </>
   );
 }
 
+function AnalyticsWorkspace({ data, effort, weeks, setWeeks, section, setSection, selectedMuscle, setSelectedMuscle, selectedExercise, setSelectedExercise, onEffortChange, onGpsImport, onDeleteGps }: {
+  data: AnalyticsData;
+  effort: SetEffortStore;
+  weeks: RangeWeeks;
+  setWeeks: (value: RangeWeeks) => void;
+  section: AnalyticsSection;
+  setSection: (value: AnalyticsSection) => void;
+  selectedMuscle: MuscleGroup | null;
+  setSelectedMuscle: (value: MuscleGroup | null) => void;
+  selectedExercise: string;
+  setSelectedExercise: (value: string) => void;
+  onEffortChange: (key: string, field: 'rpe' | 'restSeconds', value: string) => void;
+  onGpsImport: (file?: File) => void;
+  onDeleteGps: (id: string) => void;
+}) {
+  const tabs: Array<{ id: AnalyticsSection; label: string; icon: string }> = [
+    { id: 'overview', label: 'Özet', icon: '◫' },
+    { id: 'muscles', label: 'Kas', icon: '✳' },
+    { id: 'matches', label: 'Maç', icon: '⚽' },
+    { id: 'gps', label: 'GPS', icon: '⌁' },
+    { id: 'recovery', label: 'Form', icon: '◉' },
+    { id: 'tests', label: 'Testler', icon: '⌁' },
+    { id: 'records', label: 'Rekorlar', icon: '↗' },
+  ];
+  return <div className="analytics-workspace">
+    <div className="analytics-tabs" role="tablist" aria-label="Performans analizleri">{tabs.map((tab) => <button type="button" role="tab" key={tab.id} aria-selected={section === tab.id} className={section === tab.id ? 'active' : ''} onClick={() => setSection(tab.id)}><span aria-hidden="true">{tab.icon}</span>{tab.label}</button>)}</div>
+    {section === 'muscles'
+      ? <MuscleReport data={data} effort={effort} weeks={weeks} setWeeks={setWeeks} selectedMuscle={selectedMuscle} setSelectedMuscle={setSelectedMuscle} selectedExercise={selectedExercise} setSelectedExercise={setSelectedExercise} onEffortChange={onEffortChange} />
+      : <ExtendedAnalyticsView data={data} section={section} weeks={weeks} setWeeks={setWeeks} onGpsImport={onGpsImport} onDeleteGps={onDeleteGps} />}
+  </div>;
+}
+
 function MuscleReport({ data, effort, weeks, setWeeks, selectedMuscle, setSelectedMuscle, selectedExercise, setSelectedExercise, onEffortChange }: {
-  data: AnalysisData;
+  data: AnalyticsData;
   effort: SetEffortStore;
   weeks: RangeWeeks;
   setWeeks: (value: RangeWeeks) => void;
@@ -229,7 +295,7 @@ function MuscleReport({ data, effort, weeks, setWeeks, selectedMuscle, setSelect
 
   return <div className="muscle-report">
     <div className="muscle-report__topline">
-      <div className="muscle-period-controls" role="group" aria-label="Analiz dönemi">{([1, 4, 12] as const).map((period) => <button type="button" key={period} className={weeks === period ? 'active' : ''} aria-pressed={weeks === period} onClick={() => setWeeks(period)}>{period} hafta</button>)}</div>
+      <div className="muscle-period-controls" role="group" aria-label="Analiz dönemi">{([4, 8, 12] as const).map((period) => <button type="button" key={period} className={weeks === period ? 'active' : ''} aria-pressed={weeks === period} onClick={() => setWeeks(period)}>{period} hafta</button>)}</div>
       <p className="muscle-range"><span aria-hidden="true" />{formatDay(startDate)} – {formatDay(today)} <i /> {periodSets.length} set kaydı</p>
     </div>
     <div className="muscle-kpis"><Kpi icon="💪" value={formatNumber(totalSets)} label="Kas-set eşdeğeri" /><Kpi icon="🏋️" value={formatNumber(attributedVolume, 0)} label="Tahmini kg·tekrar" /><Kpi icon="🧠" value={averageRpe === null ? '—' : `${formatNumber(averageRpe)} / 10`} label="Ortalama RPE" /><Kpi icon="📅" value={String(new Set(periodSets.map((row) => row.date)).size)} label="Gym yapılan gün" /></div>
