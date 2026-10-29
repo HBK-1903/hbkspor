@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import catalogJson from './data/exercise-catalog.json';
 import MovementLibrary from './MovementLibrary';
 import { getExerciseCoaching, hasExerciseCoaching } from './exercise-coaching';
+import { BUILTIN_SCENE_COUNT, BUILTIN_SCENE_IDS } from './MovementIllustration';
 import type { ExerciseDefinition, LegacyWorkout } from './types';
 
 const catalog = catalogJson as ExerciseDefinition[];
@@ -30,9 +31,78 @@ describe('movement library', () => {
     const { container } = render(<MovementLibrary exercises={catalog} workouts={workouts} />);
     expect(container.querySelectorAll('.movement-card')).toHaveLength(81);
     expect(container.querySelectorAll('.movement-card svg[role="img"]')).toHaveLength(81);
-    const gradientIds = Array.from(container.querySelectorAll('linearGradient')).map((gradient) => gradient.id);
-    expect(new Set(gradientIds).size).toBe(81);
+    expect(BUILTIN_SCENE_COUNT).toBe(81);
+    expect([...BUILTIN_SCENE_IDS].sort()).toEqual(catalog.map((exercise) => exercise.id).sort());
+    const sceneKeys = Array.from(container.querySelectorAll('.movement-card svg')).map((svg) => svg.getAttribute('data-scene-key'));
+    expect(sceneKeys.every(Boolean)).toBe(true);
+    const sceneFor = (name: string) => screen.getByText(name).closest('button')?.querySelector('svg')?.getAttribute('data-scene-key');
+    expect(sceneFor('Romanian Deadlift (RDL)')).toBe('romanian-deadlift');
+    expect(sceneFor('Trap Bar Deadlift')).toBe('trap-deadlift');
+    expect(sceneFor('Pec Deck Machine Fly')).toBe('pec-deck');
+    expect(sceneFor('Tek Kol Dumbbell Row')).toBe('single-arm-row');
+    expect(sceneFor('T-Bar Row')).toBe('tbar-row');
+    expect(sceneFor('Chest Supported Dumbbell Row')).toBe('chest-supported-row');
+    expect(sceneFor('Cable Lateral Raise')).toBe('cable-lateral-raise');
+    expect(sceneFor('Hanging Leg Raise (Barfiks Karın)')).toBe('hanging-leg-raise');
+    const graphicIds = Array.from(container.querySelectorAll('.movement-card svg defs [id]')).map((element) => element.id);
+    expect(graphicIds).toHaveLength(81 * 4);
+    expect(new Set(graphicIds).size).toBe(graphicIds.length);
+    expect(container.querySelectorAll('.movement-card svg title')).toHaveLength(81);
+    expect(container.querySelectorAll('.movement-card svg desc')).toHaveLength(81);
     expect(screen.getByText('81 hareket gösteriliyor')).toBeTruthy();
+  });
+
+  it('adds a controllable full-size movement preview in the selected detail', () => {
+    const { container } = render(<MovementLibrary exercises={catalog} workouts={workouts} />);
+    fireEvent.click(screen.getByText('Romanian Deadlift (RDL)').closest('button')!);
+    const detailSvg = container.querySelector('.movement-detail__visual svg');
+    expect(detailSvg?.getAttribute('data-progress')).toBe('0.00');
+    expect(container.querySelector('.movement-detail__visual .movement-playback')).not.toBeNull();
+    const slider = screen.getByRole('slider', { name: 'Hareket aşaması' });
+    fireEvent.change(slider, { target: { value: '0.63' } });
+    expect(detailSvg?.getAttribute('data-progress')).toBe('0.63');
+    expect(screen.getByText('63%')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Başa al' }));
+    expect(detailSvg?.getAttribute('data-progress')).toBe('0.00');
+    expect(screen.getByText('Başlangıç')).toBeTruthy();
+  });
+
+  it('plays the selected movement in a single requestAnimationFrame loop', () => {
+    const hadRequestAnimationFrame = 'requestAnimationFrame' in window;
+    const originalRequestAnimationFrame = window.requestAnimationFrame;
+    const hadCancelAnimationFrame = 'cancelAnimationFrame' in window;
+    const originalCancelAnimationFrame = window.cancelAnimationFrame;
+    let nextFrame: FrameRequestCallback | undefined;
+    const cancelFrame = vi.fn();
+    Object.defineProperty(window, 'requestAnimationFrame', { configurable: true, value: vi.fn((callback: FrameRequestCallback) => { nextFrame = callback; return 1; }) });
+    Object.defineProperty(window, 'cancelAnimationFrame', { configurable: true, value: cancelFrame });
+    try {
+      render(<MovementLibrary exercises={catalog} workouts={workouts} />);
+      fireEvent.click(screen.getByText('Barbell Back Squat').closest('button')!);
+      const playButton = screen.getByRole('button', { name: 'Canlandırmayı oynat' });
+      fireEvent.click(playButton);
+      expect(screen.getByRole('button', { name: 'Canlandırmayı duraklat' }).getAttribute('aria-pressed')).toBe('true');
+      act(() => nextFrame?.(0));
+      act(() => nextFrame?.(900));
+      expect(screen.getByText('50%')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Canlandırmayı duraklat' }));
+      expect(screen.getByRole('button', { name: 'Canlandırmayı oynat' }).getAttribute('aria-pressed')).toBe('false');
+      expect(cancelFrame).toHaveBeenCalled();
+    } finally {
+      if (hadRequestAnimationFrame) Object.defineProperty(window, 'requestAnimationFrame', { configurable: true, value: originalRequestAnimationFrame });
+      else Reflect.deleteProperty(window, 'requestAnimationFrame');
+      if (hadCancelAnimationFrame) Object.defineProperty(window, 'cancelAnimationFrame', { configurable: true, value: originalCancelAnimationFrame });
+      else Reflect.deleteProperty(window, 'cancelAnimationFrame');
+    }
+  });
+
+  it('keeps untouched exercise illustrations stable while opening a guide', () => {
+    const { container } = render(<MovementLibrary exercises={catalog} workouts={workouts} />);
+    const untouchedCard = screen.getByText('Romanian Deadlift (RDL)').closest('button');
+    const untouchedSvg = untouchedCard?.querySelector('svg');
+    fireEvent.click(screen.getByText('Barbell Back Squat').closest('button')!);
+    expect(untouchedCard?.querySelector('svg')).toBe(untouchedSvg);
+    expect(container.querySelectorAll('.movement-card')).toHaveLength(81);
   });
 
   it('filters by category and opens the selected exercise steps', () => {
