@@ -43,3 +43,7 @@ Bu proje kendi başına deploy etmez.
 - Bilinmeyen özel hareketlerin kas grubu tahmin edilmez; yanlış kas yükü üretmek yerine rapordan çıkarılır.
 
 Kas eşleştirmeleri ve ana/yardımcı kas set ağırlıkları yaklaşık planlama göstergeleridir; gerçek kas gelişimi, yorgunluk veya sağlık durumu ölçümü değildir.
+
+## Lisans
+
+Yeni kaynak kodu ve dokümantasyon için depo kökündeki [`LICENSE`](../LICENSE) dosyasına bak. Kapsamlı eski derlenmiş uygulama paketi, depo kökündeki dağıtım dosyaları, `public/` varlıkları ve çıkarılmış `src/data/exercise-catalog.json` MIT kapsamına dahil değildir; bunların mevcut hakları saklıdır.

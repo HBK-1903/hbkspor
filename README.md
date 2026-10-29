@@ -123,4 +123,4 @@ Hata bulduysan veya geliştirme fikrin varsa bir issue aç; değişiklik gönder
 
 ## Lisans
 
-Bu depoda henüz bir lisans dosyası bulunmuyor. Açık kaynak lisansı eklenene kadar kodun yeniden kullanım ve dağıtım izinlerinin ayrıca netleştirilmesi gerekir.
+Özgün kaynak kodu ve proje dokümantasyonu, [`LICENSE`](./LICENSE) dosyasındaki **MIT** lisansı kapsamındadır. Eski derlenmiş uygulama paketleri, depo kökündeki dağıtım dosyaları (`index.html`, `sw.js`, `assets/`, ikonlar ve görseller dâhil), iki projenin `public/` varlıkları, `hbk-spor-src/src/data/exercise-catalog.json`, marka öğeleri ve üçüncü taraf içerikler bu lisansın kapsamı dışındadır; ilgili hak ve lisansları saklıdır. Bu kapsam, sahipliği belirsiz eski dağıtım dosyalarına yanlışlıkla yeniden kullanım izni vermemek için özellikle ayrılmıştır.

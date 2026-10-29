@@ -30,7 +30,6 @@ export default function MuscleAnalyticsLauncher() {
   const [weeks, setWeeks] = useState<RangeWeeks>(4);
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup | null>(null);
   const [selectedExercise, setSelectedExercise] = useState('');
-  const launchButton = useRef<HTMLButtonElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const effortFileInput = useRef<HTMLInputElement>(null);
 
@@ -56,8 +55,49 @@ export default function MuscleAnalyticsLauncher() {
 
   useEffect(() => {
     if (open) closeButton.current?.focus();
-    else launchButton.current?.focus();
+    else document.querySelector<HTMLButtonElement>('.muscle-analysis-entry')?.focus();
   }, [open]);
+
+  useEffect(() => {
+    let entry: HTMLDivElement | null = null;
+
+    const syncEntry = () => {
+      const activeNav = document.querySelector<HTMLElement>('nav[aria-label="Ana gezinme"] [aria-current="page"]');
+      const isAnalysisTab = activeNav?.textContent?.trim() === 'Analiz';
+      const heading = Array.from(document.querySelectorAll('h1')).find((node) => node.textContent?.trim() === 'Analiz' && node.closest('#root'));
+      const header = heading?.parentElement?.parentElement;
+      const page = header?.parentElement;
+
+      if (!isAnalysisTab || !header || !page) {
+        entry?.remove();
+        entry = null;
+        return;
+      }
+
+      if (entry?.isConnected && entry.parentElement === page && entry.previousElementSibling === header) return;
+      entry?.remove();
+      entry = document.createElement('div');
+      entry.dataset.hbkMuscleAnalysisEntry = 'true';
+      entry.className = 'muscle-analysis-entry-mount';
+      const entryButton = document.createElement('button');
+      entryButton.type = 'button';
+      entryButton.className = 'muscle-analysis-entry';
+      entryButton.setAttribute('aria-label', 'Kas analizi raporunu aç');
+      entryButton.setAttribute('aria-haspopup', 'dialog');
+      entryButton.innerHTML = '<span class="muscle-analysis-entry__icon" aria-hidden="true">💪</span><span class="muscle-analysis-entry__copy"><small>GÜÇ &amp; PERFORMANS</small><strong>Kas analizi</strong><span>Kas dağılımı, antrenman yükü ve set ayrıntıların</span></span><span class="muscle-analysis-entry__action" aria-hidden="true">Aç <i>↗</i></span>';
+      entryButton.addEventListener('click', () => setOpen(true));
+      entry.append(entryButton);
+      header.insertAdjacentElement('afterend', entry);
+    };
+
+    const observer = new MutationObserver(syncEntry);
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-current'] });
+    syncEntry();
+    return () => {
+      observer.disconnect();
+      entry?.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -134,9 +174,6 @@ export default function MuscleAnalyticsLauncher() {
 
   return (
     <>
-      <button ref={launchButton} type="button" className="muscle-launcher" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-label="Kas yükü analizini aç">
-        <span aria-hidden="true">💪</span><span>Kas analizi</span>
-      </button>
       {open && <section className="muscle-overlay" role="dialog" aria-modal="true" aria-labelledby="muscle-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
         <div className="muscle-panel">
           <header className="muscle-panel__header">
@@ -191,18 +228,20 @@ function MuscleReport({ data, effort, weeks, setWeeks, selectedMuscle, setSelect
     }).length;
 
   return <div className="muscle-report">
-    <div className="muscle-period-controls" role="group" aria-label="Analiz dönemi">{([1, 4, 12] as const).map((period) => <button type="button" key={period} className={weeks === period ? 'active' : ''} aria-pressed={weeks === period} onClick={() => setWeeks(period)}>{period} hafta</button>)}</div>
-    <p className="muscle-range">{formatDay(startDate)} – {formatDay(today)} · {periodSets.length} set kaydı</p>
+    <div className="muscle-report__topline">
+      <div className="muscle-period-controls" role="group" aria-label="Analiz dönemi">{([1, 4, 12] as const).map((period) => <button type="button" key={period} className={weeks === period ? 'active' : ''} aria-pressed={weeks === period} onClick={() => setWeeks(period)}>{period} hafta</button>)}</div>
+      <p className="muscle-range"><span aria-hidden="true" />{formatDay(startDate)} – {formatDay(today)} <i /> {periodSets.length} set kaydı</p>
+    </div>
     <div className="muscle-kpis"><Kpi icon="💪" value={formatNumber(totalSets)} label="Kas-set eşdeğeri" /><Kpi icon="🏋️" value={formatNumber(attributedVolume, 0)} label="Tahmini kg·tekrar" /><Kpi icon="🧠" value={averageRpe === null ? '—' : `${formatNumber(averageRpe)} / 10`} label="Ortalama RPE" /><Kpi icon="📅" value={String(new Set(periodSets.map((row) => row.date)).size)} label="Gym yapılan gün" /></div>
     {data.dbVersion < 2 && <div className="muscle-alert" role="status">HBK Spor’un mevcut v2 veritabanı bulunamadı. Ana uygulamayı bir kez açıp veriler yüklendikten sonra “Yenile”ye bas.</div>}
     {data.workouts.length === 0 && data.dbVersion >= 2 && <div className="muscle-empty"><h2>Henüz gym kaydı yok</h2><p>Önce ana HBK Spor ekranından bir gym antrenmanı ve hareket kaydet. Bu sayfa kayıtları otomatik okuyacak.</p></div>}
     {unlabeledWorkoutCount > 0 && <p className="muscle-note">{unlabeledWorkoutCount} özel/harici hareket kas kataloğunda eşleşmediği için kas grafiğine dahil edilmedi.</p>}
     {periodSets.length > 0 && <>
-      <section className="muscle-card"><SectionTitle eyebrow="VÜCUT HARİTASI" title="Çalışan kas grupları" /><MuscleBodyMap summaries={summary} selected={selectedMuscle} onSelect={setSelectedMuscle} /><p className="muscle-note">Ana kas seti 1, yardımcı kas seti 0,5 katsayısıyla hesaplanır. Set RPE’si girilmemişse antrenman genel RPE’si kullanılır; RPE öz bildirimdir. Renk ve tahmini hacim gerçek kas gelişimi veya fizyolojik yorgunluk ölçümü değildir.</p></section>
-      <section className="muscle-card"><SectionTitle eyebrow="KAS DAĞILIMI" title={selectedMuscle ? MUSCLE_LABELS[selectedMuscle] : 'Dönem özeti'} />{selectedMuscle && <button type="button" className="muscle-text-button" onClick={() => setSelectedMuscle(null)}>Filtreyi temizle</button>}<div className="muscle-bars">{summary.map((item) => <MuscleBar key={item.muscle} item={item} max={maxSets} selected={selectedMuscle === item.muscle} onClick={() => setSelectedMuscle(selectedMuscle === item.muscle ? null : item.muscle)} />)}</div></section>
+      <section className="muscle-card muscle-card--map"><SectionTitle eyebrow="VÜCUT HARİTASI" title="Çalışan kas grupları" /><MuscleBodyMap summaries={summary} selected={selectedMuscle} onSelect={setSelectedMuscle} /><p className="muscle-note">Ana kas seti 1, yardımcı kas seti 0,5 katsayısıyla hesaplanır. Set RPE’si girilmemişse antrenman genel RPE’si kullanılır; RPE öz bildirimdir. Renk ve tahmini hacim gerçek kas gelişimi veya fizyolojik yorgunluk ölçümü değildir.</p></section>
+      <section className="muscle-card muscle-card--distribution"><SectionTitle eyebrow="KAS DAĞILIMI" title={selectedMuscle ? MUSCLE_LABELS[selectedMuscle] : 'Dönem özeti'} />{selectedMuscle && <button type="button" className="muscle-text-button" onClick={() => setSelectedMuscle(null)}>Filtreyi temizle</button>}<div className="muscle-bars">{summary.map((item) => <MuscleBar key={item.muscle} item={item} max={maxSets} selected={selectedMuscle === item.muscle} onClick={() => setSelectedMuscle(selectedMuscle === item.muscle ? null : item.muscle)} />)}</div></section>
       <TrainingHeatmap workouts={data.workouts} rows={periodSets} weeks={weeks} startDate={startDate} />
       <ExerciseProgress rows={periodSets} options={exerciseOptions} selectedExercise={activeExercise} setSelectedExercise={setSelectedExercise} />
-      <section className="muscle-card"><div className="muscle-section-heading"><SectionTitle eyebrow="HAREKET & SET DETAYI" title={`${filteredSets.length} set`} />{selectedMuscle && <button type="button" className="muscle-text-button" onClick={() => setSelectedMuscle(null)}>Filtreyi kaldır</button>}</div>{filteredSets.length ? <div className="muscle-table-scroll"><table className="muscle-set-table"><thead><tr><th>Gün / hareket</th><th>Set</th><th>Tekrar</th><th>Kg</th><th>RPE</th><th>Dinlenme</th></tr></thead><tbody>{[...filteredSets].reverse().map((row) => { const key = setMetadataKey(row.workoutId, row.exerciseId, row.setId); return <tr key={key}><td><b>{row.exerciseName}</b><small>{formatDay(row.date)} · {row.workoutTitle}</small><small>{row.primaryMuscles.map((muscle) => MUSCLE_LABELS[muscle]).join(', ')}</small></td><td>{row.setNumber}</td><td>{row.reps}</td><td>{formatNumber(row.weightKg, 1)}</td><td><input aria-label={`${row.exerciseName} set ${row.setNumber} RPE`} type="number" min="1" max="10" step="1" value={effort[key]?.rpe ?? ''} placeholder={row.workoutRpe ? String(row.workoutRpe) : '—'} onChange={(event) => onEffortChange(key, 'rpe', event.target.value)} /></td><td><div className="rest-input"><input aria-label={`${row.exerciseName} set ${row.setNumber} dinlenme saniye`} type="number" min="0" max="600" step="5" value={effort[key]?.restSeconds ?? ''} placeholder="—" onChange={(event) => onEffortChange(key, 'restSeconds', event.target.value)} /><span>sn</span></div></td></tr>; })}</tbody></table></div> : <p className="muscle-empty-copy">Bu kas grubu için set kaydı bulunmuyor.</p>}</section>
+      <section className="muscle-card muscle-card--sets"><div className="muscle-section-heading"><SectionTitle eyebrow="HAREKET & SET DETAYI" title={`${filteredSets.length} set`} />{selectedMuscle && <button type="button" className="muscle-text-button" onClick={() => setSelectedMuscle(null)}>Filtreyi kaldır</button>}</div>{filteredSets.length ? <div className="muscle-table-scroll"><table className="muscle-set-table"><thead><tr><th>Gün / hareket</th><th>Set</th><th>Tekrar</th><th>Kg</th><th>RPE</th><th>Dinlenme</th></tr></thead><tbody>{[...filteredSets].reverse().map((row) => { const key = setMetadataKey(row.workoutId, row.exerciseId, row.setId); return <tr key={key}><td><b>{row.exerciseName}</b><small>{formatDay(row.date)} · {row.workoutTitle}</small><small>{row.primaryMuscles.map((muscle) => MUSCLE_LABELS[muscle]).join(', ')}</small></td><td>{row.setNumber}</td><td>{row.reps}</td><td>{formatNumber(row.weightKg, 1)}</td><td><input aria-label={`${row.exerciseName} set ${row.setNumber} RPE`} type="number" min="1" max="10" step="1" value={effort[key]?.rpe ?? ''} placeholder={row.workoutRpe ? String(row.workoutRpe) : '—'} onChange={(event) => onEffortChange(key, 'rpe', event.target.value)} /></td><td><div className="rest-input"><input aria-label={`${row.exerciseName} set ${row.setNumber} dinlenme saniye`} type="number" min="0" max="600" step="5" value={effort[key]?.restSeconds ?? ''} placeholder="—" onChange={(event) => onEffortChange(key, 'restSeconds', event.target.value)} /><span>sn</span></div></td></tr>; })}</tbody></table></div> : <p className="muscle-empty-copy">Bu kas grubu için set kaydı bulunmuyor.</p>}</section>
     </>}
     {data.workouts.some((workout) => workout.type === 'gym') && coveredWorkoutIds.size === 0 && <p className="muscle-note">Gym kayıtların bulundu ancak içlerinde kas kataloğuyla eşleşen set bilgisi bulunamadı. Hareket adlarını kontrol etmek için ana uygulamadaki kayıt detayını aç.</p>}
   </div>;
@@ -259,7 +298,7 @@ function MuscleBodyMap({ summaries, selected, onSelect }: { summaries: MuscleLoa
 
 function TrainingHeatmap({ workouts, rows, weeks, startDate }: { workouts: LegacyWorkout[]; rows: FlattenedSet[]; weeks: RangeWeeks; startDate: string }) {
   const columns = Array.from({ length: weeks }, (_, week) => Array.from({ length: 7 }, (_, day) => addLocalDays(startDate, week * 7 + day)));
-  return <section className="muscle-card"><SectionTitle eyebrow="ANTRENMAN RİTMİ" title="Gym günleri" /><div className="muscle-heatmap" style={{ '--week-count': weeks } as CSSProperties}><span /><div className="muscle-heatmap-week-labels">{columns.map((_, index) => <small key={index}>{index + 1}</small>)}</div>{['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map((day, dayIndex) => <div className="muscle-heatmap-row" key={day}><small>{day}</small>{columns.map((column) => { const date = column[dayIndex]; const count = workouts.filter((workout) => workout.type === 'gym' && workout.date === date).length; const sets = rows.filter((row) => row.date === date).length; const level = !count ? 0 : sets >= 10 ? 3 : sets >= 4 ? 2 : 1; return <span key={date} className={`muscle-heat-cell level-${level}`} title={`${date}: ${count ? `${count} gym antrenmanı, ${sets} set` : 'kayıt yok'}`} aria-label={`${date}: ${count ? `${count} antrenman, ${sets} set` : 'kayıt yok'}`} />; })}</div>)}</div><div className="muscle-heat-key"><span>Az</span><i className="level-0" /><i className="level-1" /><i className="level-2" /><i className="level-3" /><span>Çok</span></div><p className="muscle-note">Isı haritası set kaydını gösterir; dinlenme günü başarısızlık değildir.</p></section>;
+  return <section className="muscle-card muscle-card--heatmap"><SectionTitle eyebrow="ANTRENMAN RİTMİ" title="Gym günleri" /><div className="muscle-heatmap" style={{ '--week-count': weeks } as CSSProperties}><span /><div className="muscle-heatmap-week-labels">{columns.map((_, index) => <small key={index}>{index + 1}</small>)}</div>{['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map((day, dayIndex) => <div className="muscle-heatmap-row" key={day}><small>{day}</small>{columns.map((column) => { const date = column[dayIndex]; const count = workouts.filter((workout) => workout.type === 'gym' && workout.date === date).length; const sets = rows.filter((row) => row.date === date).length; const level = !count ? 0 : sets >= 10 ? 3 : sets >= 4 ? 2 : 1; return <span key={date} className={`muscle-heat-cell level-${level}`} title={`${date}: ${count ? `${count} gym antrenmanı, ${sets} set` : 'kayıt yok'}`} aria-label={`${date}: ${count ? `${count} antrenman, ${sets} set` : 'kayıt yok'}`} />; })}</div>)}</div><div className="muscle-heat-key"><span>Az</span><i className="level-0" /><i className="level-1" /><i className="level-2" /><i className="level-3" /><span>Çok</span></div><p className="muscle-note">Isı haritası set kaydını gösterir; dinlenme günü başarısızlık değildir.</p></section>;
 }
 
 function ExerciseProgress({ rows, options, selectedExercise, setSelectedExercise }: { rows: FlattenedSet[]; options: Array<[string, string]>; selectedExercise: string; setSelectedExercise: (value: string) => void }) {
@@ -278,7 +317,7 @@ function ExerciseProgress({ rows, options, selectedExercise, setSelectedExercise
   const viewW = 360; const viewH = 150; const pad = { x: 26, y: 14, bottom: 28 };
   const innerW = viewW - pad.x - 12; const innerH = viewH - pad.y - pad.bottom;
   const coords = values.map((value, index) => ({ x: sortedPoints.length < 2 ? pad.x + innerW / 2 : pad.x + index / (sortedPoints.length - 1) * innerW, y: pad.y + (1 - value / max) * innerH }));
-  return <section className="muscle-card"><SectionTitle eyebrow="HAREKET İLERLEMESİ" title="Zaman içindeki kayıtlar" />{!options.length ? <p className="muscle-empty-copy">Bu dönemde hareket grafiği için kayıt bulunmuyor.</p> : <><label className="muscle-select-label">Hareket<select value={selectedExercise} onChange={(event) => setSelectedExercise(event.target.value)}>{options.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select></label><p className="muscle-note">{weighted ? 'Grafik: dış yük hacmi (kg × tekrar).' : 'Bu harekette yük girilmedi; grafik toplam tekrarları gösteriyor.'}</p><svg className="muscle-progress-chart" viewBox={`0 0 ${viewW} ${viewH}`} role="img" aria-label={`${options.find(([id]) => id === selectedExercise)?.[1] ?? 'Hareket'} gelişim grafiği`}><line x1={pad.x} y1={pad.y + innerH} x2={viewW - 12} y2={pad.y + innerH} /><line x1={pad.x} y1={pad.y} x2={pad.x} y2={pad.y + innerH} />{coords.length > 1 && <polyline points={coords.map((point) => `${point.x},${point.y}`).join(' ')} />}{coords.map((point, index) => <g key={`${sortedPoints[index].date}-${index}`}><circle cx={point.x} cy={point.y} r="4" /><title>{formatDay(sortedPoints[index].date)}: {formatNumber(values[index], 0)}</title></g>)}<text x={pad.x} y={viewH - 5}>{sortedPoints[0] ? formatDay(sortedPoints[0].date) : ''}</text><text x={viewW - 12} y={viewH - 5} textAnchor="end">{sortedPoints.length ? formatDay(sortedPoints[sortedPoints.length - 1].date) : ''}</text></svg><ul className="muscle-chart-values">{sortedPoints.map((point, index) => <li key={`${point.date}-${point.title}-${index}`}>{formatDay(point.date)} <b>{formatNumber(values[index], 0)} {weighted ? 'kg·tekrar' : 'tekrar'}</b></li>)}</ul></>}</section>;
+  return <section className="muscle-card muscle-card--progress"><SectionTitle eyebrow="HAREKET İLERLEMESİ" title="Zaman içindeki kayıtlar" />{!options.length ? <p className="muscle-empty-copy">Bu dönemde hareket grafiği için kayıt bulunmuyor.</p> : <><label className="muscle-select-label">Hareket<select value={selectedExercise} onChange={(event) => setSelectedExercise(event.target.value)}>{options.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select></label><p className="muscle-note">{weighted ? 'Grafik: dış yük hacmi (kg × tekrar).' : 'Bu harekette yük girilmedi; grafik toplam tekrarları gösteriyor.'}</p><svg className="muscle-progress-chart" viewBox={`0 0 ${viewW} ${viewH}`} role="img" aria-label={`${options.find(([id]) => id === selectedExercise)?.[1] ?? 'Hareket'} gelişim grafiği`}><line x1={pad.x} y1={pad.y + innerH} x2={viewW - 12} y2={pad.y + innerH} /><line x1={pad.x} y1={pad.y} x2={pad.x} y2={pad.y + innerH} />{coords.length > 1 && <polyline points={coords.map((point) => `${point.x},${point.y}`).join(' ')} />}{coords.map((point, index) => <g key={`${sortedPoints[index].date}-${index}`}><circle cx={point.x} cy={point.y} r="4" /><title>{formatDay(sortedPoints[index].date)}: {formatNumber(values[index], 0)}</title></g>)}<text x={pad.x} y={viewH - 5}>{sortedPoints[0] ? formatDay(sortedPoints[0].date) : ''}</text><text x={viewW - 12} y={viewH - 5} textAnchor="end">{sortedPoints.length ? formatDay(sortedPoints[sortedPoints.length - 1].date) : ''}</text></svg><ul className="muscle-chart-values">{sortedPoints.map((point, index) => <li key={`${point.date}-${point.title}-${index}`}>{formatDay(point.date)} <b>{formatNumber(values[index], 0)} {weighted ? 'kg·tekrar' : 'tekrar'}</b></li>)}</ul></>}</section>;
 }
 
 function formatNumber(value: number, digits = 1): string {
