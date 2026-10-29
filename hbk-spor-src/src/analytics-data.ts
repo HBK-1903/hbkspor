@@ -1,4 +1,4 @@
-import type { GpsActivity, GpsRoutePoint, GpsSplit, LegacyWorkout, SkillTestRecord, WellnessPoint } from './types';
+import type { GpsActivity, GpsQuality, GpsRoutePoint, GpsSplit, LegacyWorkout, SkillTestRecord, WellnessPoint } from './types';
 
 export const GPS_RUNS_KEY = 'hbk_gps_runs';
 export const SKILL_TESTS_KEY = 'hbk_skill_tests_v1';
@@ -21,22 +21,77 @@ export interface AnalyticsSupplementalData {
   wellness: WellnessPoint[];
 }
 
+function readAppGpsQuality(value: unknown): GpsQuality | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const quality = value as Record<string, unknown>;
+  if (!['good', 'fair', 'poor'].includes(String(quality.grade))) return undefined;
+  const numeric = (key: string) => typeof quality[key] === 'number' && Number.isFinite(quality[key]) && Number(quality[key]) >= 0 ? Number(quality[key]) : undefined;
+  const median = quality.medianAccuracyM;
+  return {
+    grade: quality.grade as GpsQuality['grade'],
+    ...(typeof median === 'number' && Number.isFinite(median) && median >= 0 ? { medianAccuracyM: median } : median === null ? { medianAccuracyM: null } : {}),
+    ...(numeric('acceptedSegments') !== undefined ? { acceptedSegments: numeric('acceptedSegments') } : {}),
+    ...(numeric('rejectedPoints') !== undefined ? { rejectedPoints: numeric('rejectedPoints') } : {}),
+    ...(numeric('stationarySamples') !== undefined ? { stationarySamples: numeric('stationarySamples') } : {}),
+    ...(numeric('gapSeconds') !== undefined ? { gapSeconds: numeric('gapSeconds') } : {}),
+    ...(numeric('backgroundGapSeconds') !== undefined ? { backgroundGapSeconds: numeric('backgroundGapSeconds') } : {}),
+  };
+}
+
 export function readSupplementalAnalytics(workouts: LegacyWorkout[]): AnalyticsSupplementalData {
   const appGps = readArray<Record<string, unknown>>(GPS_RUNS_KEY).flatMap((run): GpsActivity[] => {
     if (typeof run.id !== 'string' || /^demo[-_]/i.test(run.id) || typeof run.date !== 'string' || typeof run.distanceKm !== 'number') return [];
-    const points = Array.isArray(run.points) ? run.points.flatMap((point): GpsRoutePoint[] => {
+    const rawPoints = Array.isArray(run.points) ? run.points.flatMap((point): GpsRoutePoint[] => {
       if (!point || typeof point !== 'object') return [];
       const p = point as Record<string, unknown>;
-      const lat = Number(p.lat);
-      const lon = Number(p.lng ?? p.lon);
-      return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? [{ lat, lon }] : [];
+      const number = (raw: unknown) => typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw) : NaN;
+      const lat = number(p.lat);
+      const lon = number(p.lng ?? p.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return [];
+      const rawTime = p.t ?? p.time ?? p.timestamp;
+      const timestamp = typeof rawTime === 'number' ? rawTime : typeof rawTime === 'string' ? Date.parse(rawTime) : NaN;
+      const elevation = number(p.elevationM ?? p.elevation ?? p.altitude);
+      const heartRate = number(p.heartRate ?? p.hr);
+      const cadence = number(p.cadence ?? p.cad);
+      const distanceKm = number(p.distanceKm ?? p.cumulativeDistanceKm);
+      const accuracy = number(p.acc ?? p.accuracyM ?? p.accuracy);
+      const speedMps = number(p.speedMps ?? p.speed);
+      const speedKmh = number(p.speedKmh);
+      return [{
+        lat, lon,
+        ...(Number.isFinite(timestamp) && timestamp > 0 ? { time: new Date(timestamp).toISOString() } : {}),
+        ...(Number.isFinite(distanceKm) && distanceKm >= 0 ? { distanceKm } : {}),
+        ...(Number.isFinite(elevation) ? { elevationM: elevation } : {}),
+        ...(Number.isFinite(heartRate) && heartRate > 0 && heartRate < 260 ? { heartRate } : {}),
+        ...(Number.isFinite(cadence) && cadence > 0 && cadence < 300 ? { cadence } : {}),
+        ...(Number.isFinite(accuracy) && accuracy >= 0 ? { accuracyM: accuracy } : {}),
+        ...(Number.isFinite(speedKmh) && speedKmh >= 0 ? { speedKmh } : Number.isFinite(speedMps) && speedMps >= 0 ? { speedKmh: speedMps * 3.6 } : {}),
+      }];
     }) : [];
+    let cumulativeMeters = 0;
+    const points = rawPoints.map((point, index) => {
+      if (index > 0 && point.distanceKm === undefined) {
+        const previous = rawPoints[index - 1];
+        const elapsed = previous.time && point.time ? (Date.parse(point.time) - Date.parse(previous.time)) / 1000 : 0;
+        const distance = haversineMeters(previous, point);
+        if (elapsed > 0 && elapsed <= 300 && distance / elapsed <= 60) cumulativeMeters += distance;
+      } else if (point.distanceKm !== undefined) cumulativeMeters = point.distanceKm * 1000;
+      return { ...point, distanceKm: point.distanceKm ?? Math.round(cumulativeMeters) / 1000 };
+    });
+    const movingSeconds = Math.max(0, Number(run.movingSec) || 0);
+    const distanceKm = Number(run.distanceKm);
+    const quality = readAppGpsQuality(run.quality);
+    const speeds = points.flatMap((point) => point.speedKmh !== undefined ? [point.speedKmh] : []);
     return [{
       id: run.id,
       date: run.date,
-      distanceKm: run.distanceKm,
-      elapsedSeconds: Number(run.durationSec) || 0,
-      movingSeconds: Number(run.movingSec) || 0,
+      distanceKm,
+      elapsedSeconds: Math.max(0, Number(run.durationSec) || 0),
+      movingSeconds,
+      ...(typeof run.pausedSec === 'number' && Number.isFinite(run.pausedSec) && run.pausedSec >= 0 ? { pausedSeconds: run.pausedSec } : {}),
+      ...(quality ? { quality } : {}),
+      ...(movingSeconds > 0 && distanceKm > 0 ? { avgSpeedKmh: distanceKm / movingSeconds * 3600 } : {}),
+      ...(speeds.length ? { maxSpeedKmh: speeds.reduce((best, speed) => Math.max(best, speed), 0) } : {}),
       route: evenlySample(points, MAX_SAVED_ROUTE_POINTS),
       source: 'app',
     }];
@@ -70,13 +125,32 @@ export function readSupplementalAnalytics(workouts: LegacyWorkout[]): AnalyticsS
 function isGpsActivity(value: unknown): value is GpsActivity {
   if (!value || typeof value !== 'object') return false;
   const activity = value as Partial<GpsActivity>;
+  const optionalNumber = (number: unknown, min = 0) => number === undefined || (typeof number === 'number' && Number.isFinite(number) && number >= min);
+  const quality = activity.quality;
+  const validQuality = quality === undefined || Boolean(quality && ['good', 'fair', 'poor'].includes(quality.grade)
+    && (quality.medianAccuracyM === undefined || quality.medianAccuracyM === null || optionalNumber(quality.medianAccuracyM))
+    && optionalNumber(quality.acceptedSegments) && optionalNumber(quality.rejectedPoints)
+    && optionalNumber(quality.stationarySamples) && optionalNumber(quality.gapSeconds)
+    && optionalNumber(quality.backgroundGapSeconds));
   return typeof activity.id === 'string'
     && typeof activity.date === 'string'
     && typeof activity.distanceKm === 'number' && Number.isFinite(activity.distanceKm) && activity.distanceKm > 0
     && typeof activity.elapsedSeconds === 'number' && Number.isFinite(activity.elapsedSeconds) && activity.elapsedSeconds >= 0
     && typeof activity.movingSeconds === 'number' && Number.isFinite(activity.movingSeconds) && activity.movingSeconds >= 0
+    && optionalNumber(activity.pausedSeconds)
+    && optionalNumber(activity.avgSpeedKmh) && optionalNumber(activity.maxSpeedKmh)
+    && optionalNumber(activity.elevationGainM) && optionalNumber(activity.avgHeartRate, 1)
+    && optionalNumber(activity.maxHeartRate, 1) && optionalNumber(activity.avgCadence, 1)
+    && optionalNumber(activity.maxCadence, 1) && validQuality
     && Array.isArray(activity.route) && activity.route.length <= MAX_SAVED_ROUTE_POINTS
-    && activity.route.every((point) => point && Number.isFinite(point.lat) && Number.isFinite(point.lon) && Math.abs(point.lat) <= 90 && Math.abs(point.lon) <= 180)
+    && activity.route.every((point) => point && Number.isFinite(point.lat) && Number.isFinite(point.lon) && Math.abs(point.lat) <= 90 && Math.abs(point.lon) <= 180
+      && (point.time === undefined || (typeof point.time === 'string' && Number.isFinite(Date.parse(point.time))))
+      && (point.distanceKm === undefined || (Number.isFinite(point.distanceKm) && point.distanceKm >= 0))
+      && (point.elevationM === undefined || Number.isFinite(point.elevationM))
+      && (point.heartRate === undefined || (Number.isFinite(point.heartRate) && point.heartRate > 0 && point.heartRate < 260))
+      && (point.cadence === undefined || (Number.isFinite(point.cadence) && point.cadence > 0 && point.cadence < 300))
+      && (point.accuracyM === undefined || (Number.isFinite(point.accuracyM) && point.accuracyM >= 0))
+      && (point.speedKmh === undefined || (Number.isFinite(point.speedKmh) && point.speedKmh >= 0)))
     && ['gpx', 'tcx', 'fit'].includes(activity.source ?? '');
 }
 
@@ -85,7 +159,7 @@ function childText(element: Element, localName: string): string | undefined {
   return child?.textContent?.trim() || undefined;
 }
 
-function haversineMeters(a: GpsRoutePoint, b: GpsRoutePoint): number {
+function haversineMeters(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
   const radians = (degrees: number) => degrees * Math.PI / 180;
   const dLat = radians(b.lat - a.lat);
   const dLon = radians(b.lon - a.lon);
@@ -134,57 +208,70 @@ export function parseGpxActivity(xml: string, fileName: string, importedAt = new
   let splitMovingSeconds = 0;
   let splitNumber = 1;
   let maxSpeedMetersPerSecond = 0;
-  const timedPoints: Array<{ time: number; point: GpsRoutePoint }> = [];
-  const allPoints: GpsRoutePoint[] = [];
+  const timedPoints: number[] = [];
+  const routePoints: GpsRoutePoint[] = [];
   for (const segment of parsedSegments) {
     for (let index = 0; index < segment.length; index += 1) {
       const point = segment[index];
-      allPoints.push({ lat: point.lat, lon: point.lon });
-      if (point.time !== undefined) timedPoints.push({ time: point.time, point: { lat: point.lat, lon: point.lon } });
+      if (point.time !== undefined) timedPoints.push(point.time);
       if (point.elevation !== undefined) elevations.push(point.elevation);
       if (point.heartRate !== undefined && point.heartRate > 0 && point.heartRate < 260) heartRates.push(point.heartRate);
       if (point.cadence !== undefined && point.cadence > 0 && point.cadence < 300) cadences.push(point.cadence);
-      if (index === 0) continue;
-      const previous = segment[index - 1];
-      const distance = haversineMeters(previous, point);
-      const elapsed = previous.time !== undefined && point.time !== undefined ? (point.time - previous.time) / 1000 : 0;
-      // Keep separate GPX segments and ignore teleport/jump artifacts rather than inventing distance.
-      if (elapsed > 0 && elapsed <= 300 && distance / elapsed <= 60) {
-        const speed = distance / elapsed;
-        distanceMeters += distance;
-        maxSpeedMetersPerSecond = Math.max(maxSpeedMetersPerSecond, speed);
-        const isMoving = speed >= 0.5;
-        if (isMoving) movingSeconds += elapsed;
-        let remaining = distance;
-        while (remaining > 0) {
-          const chunk = Math.min(remaining, 1000 - splitDistanceMeters);
-          splitDistanceMeters += chunk;
-          if (isMoving) splitMovingSeconds += elapsed * chunk / distance;
-          remaining -= chunk;
-          if (splitDistanceMeters >= 999.99) {
-            const splitSeconds = Math.round(splitMovingSeconds);
-            splits.push({ number: splitNumber++, distanceKm: 1, movingSeconds: splitSeconds, paceSecondsPerKm: splitSeconds });
-            splitDistanceMeters = 0;
-            splitMovingSeconds = 0;
+      let routeDistanceMeters = distanceMeters;
+      if (index > 0) {
+        const previous = segment[index - 1];
+        const distance = haversineMeters(previous, point);
+        const elapsed = previous.time !== undefined && point.time !== undefined ? (point.time - previous.time) / 1000 : 0;
+        // Keep separate GPX segments and ignore teleport/jump artifacts rather than inventing distance.
+        if (elapsed > 0 && elapsed <= 300 && distance / elapsed <= 60) {
+          const speed = distance / elapsed;
+          distanceMeters += distance;
+          routeDistanceMeters = distanceMeters;
+          maxSpeedMetersPerSecond = Math.max(maxSpeedMetersPerSecond, speed);
+          const isMoving = speed >= 0.5;
+          if (isMoving) movingSeconds += elapsed;
+          let remaining = distance;
+          while (remaining > 0) {
+            const chunk = Math.min(remaining, 1000 - splitDistanceMeters);
+            splitDistanceMeters += chunk;
+            if (isMoving) splitMovingSeconds += elapsed * chunk / distance;
+            remaining -= chunk;
+            if (splitDistanceMeters >= 999.99) {
+              const splitSeconds = Math.round(splitMovingSeconds);
+              splits.push({ number: splitNumber++, distanceKm: 1, movingSeconds: splitSeconds, paceSecondsPerKm: splitSeconds });
+              splitDistanceMeters = 0;
+              splitMovingSeconds = 0;
+            }
           }
+        } else if (elapsed === 0 && distance <= 100) {
+          distanceMeters += distance;
+          routeDistanceMeters = distanceMeters;
         }
-      } else if (elapsed === 0 && distance <= 100) {
-        distanceMeters += distance;
+        if (previous.elevation !== undefined && point.elevation !== undefined && point.elevation - previous.elevation > 1) elevationGain += point.elevation - previous.elevation;
       }
-      if (previous.elevation !== undefined && point.elevation !== undefined && point.elevation - previous.elevation > 1) elevationGain += point.elevation - previous.elevation;
+      routePoints.push({
+        lat: point.lat,
+        lon: point.lon,
+        ...(point.time !== undefined ? { time: new Date(point.time).toISOString() } : {}),
+        distanceKm: Math.round(routeDistanceMeters) / 1000,
+        ...(point.elevation !== undefined ? { elevationM: point.elevation } : {}),
+        ...(point.heartRate !== undefined && point.heartRate > 0 && point.heartRate < 260 ? { heartRate: point.heartRate } : {}),
+        ...(point.cadence !== undefined && point.cadence > 0 && point.cadence < 300 ? { cadence: point.cadence } : {}),
+      });
     }
   }
-  const firstTime = timedPoints.length ? Math.min(...timedPoints.map((point) => point.time)) : 0;
-  const lastTime = timedPoints.length ? Math.max(...timedPoints.map((point) => point.time)) : 0;
-  const elapsedSeconds = firstTime && lastTime > firstTime ? Math.round((lastTime - firstTime) / 1000) : Math.round(movingSeconds);
+  const firstTime = timedPoints.reduce((best, time) => Math.min(best, time), Infinity);
+  const lastTime = timedPoints.reduce((best, time) => Math.max(best, time), 0);
+  const safeFirstTime = Number.isFinite(firstTime) ? firstTime : 0;
+  const elapsedSeconds = safeFirstTime && lastTime > safeFirstTime ? Math.round((lastTime - safeFirstTime) / 1000) : Math.round(movingSeconds);
   if (distanceMeters < 30) throw new Error('GPX rotası çok kısa; en az 30 metre doğrulanabilir mesafe gerekli.');
   if (splitDistanceMeters >= 250) {
     const partialDistanceKm = splitDistanceMeters / 1000;
     const partialPace = splitDistanceMeters ? Math.round(splitMovingSeconds / partialDistanceKm) : 0;
     splits.push({ number: splitNumber, distanceKm: Math.round(partialDistanceKm * 100) / 100, movingSeconds: Math.round(splitMovingSeconds), paceSecondsPerKm: partialPace });
   }
-  const sample = evenlySample(allPoints, MAX_SAVED_ROUTE_POINTS);
-  const date = firstTime ? (() => { const d = new Date(firstTime); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })() : importedAt.slice(0, 10);
+  const sample = evenlySample(routePoints, MAX_SAVED_ROUTE_POINTS);
+  const date = safeFirstTime ? (() => { const d = new Date(safeFirstTime); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })() : importedAt.slice(0, 10);
   return {
     id: `gpx-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
     date,
@@ -194,8 +281,8 @@ export function parseGpxActivity(xml: string, fileName: string, importedAt = new
     ...(movingSeconds > 0 ? { avgSpeedKmh: Math.round(distanceMeters / movingSeconds * 3.6 * 100) / 100 } : {}),
     ...(maxSpeedMetersPerSecond > 0 ? { maxSpeedKmh: Math.round(maxSpeedMetersPerSecond * 3.6 * 100) / 100 } : {}),
     ...(elevations.length > 1 ? { elevationGainM: Math.round(elevationGain) } : {}),
-    ...(heartRates.length ? { avgHeartRate: Math.round(heartRates.reduce((sum, value) => sum + value, 0) / heartRates.length), maxHeartRate: Math.max(...heartRates) } : {}),
-    ...(cadences.length ? { avgCadence: Math.round(cadences.reduce((sum, value) => sum + value, 0) / cadences.length), maxCadence: Math.max(...cadences) } : {}),
+    ...(heartRates.length ? { avgHeartRate: Math.round(heartRates.reduce((sum, value) => sum + value, 0) / heartRates.length), maxHeartRate: heartRates.reduce((best, value) => Math.max(best, value), 0) } : {}),
+    ...(cadences.length ? { avgCadence: Math.round(cadences.reduce((sum, value) => sum + value, 0) / cadences.length), maxCadence: cadences.reduce((best, value) => Math.max(best, value), 0) } : {}),
     ...(splits.length ? { splits } : {}),
     route: sample,
     source: 'gpx',

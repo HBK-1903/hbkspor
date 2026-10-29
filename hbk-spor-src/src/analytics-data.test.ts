@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { FitBaseType, FitEncoder } from 'fit-file-parser/encoder';
-import { GPS_IMPORTS_KEY, parseFitActivity, parseGpxActivity, parseTcxActivity, readSupplementalAnalytics, saveImportedGpsActivities } from './analytics-data';
+import { GPS_IMPORTS_KEY, loadImportedGpsActivities, parseFitActivity, parseGpxActivity, parseTcxActivity, readSupplementalAnalytics, saveImportedGpsActivities } from './analytics-data';
 import type { LegacyWorkout } from './types';
 
 const sampleGpx = `<?xml version="1.0"?><gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"><trk><trkseg>
@@ -27,6 +27,8 @@ describe('Strava-style GPX import', () => {
     });
     expect(activity.distanceKm).toBeGreaterThan(0.2);
     expect(activity.route).toHaveLength(3);
+    expect(activity.route[0]).toMatchObject({ time: '2026-10-29T06:00:00.000Z', elevationM: 100, heartRate: 120, distanceKm: 0 });
+    expect(activity.route[1].distanceKm).toBeGreaterThan(activity.route[0].distanceKm ?? 0);
   });
 
   it('rejects malformed files and tracks too short to be meaningful', () => {
@@ -83,11 +85,15 @@ describe('Strava-style GPX import', () => {
     const imported = parseGpxActivity(sampleGpx, 'run.gpx');
     expect(saveImportedGpsActivities([imported])).toBe(true);
     expect(window.localStorage.getItem(GPS_IMPORTS_KEY)).toContain('run.gpx');
-    window.localStorage.setItem('hbk_gps_runs', JSON.stringify([{ id: 'app-run', date: '2026-10-28', distanceKm: 1, durationSec: 500, movingSec: 480, points: [{ lat: 37.7, lng: 29 }] }, { id: 'demo-run', date: '2026-10-28', distanceKm: 99, durationSec: 500, movingSec: 480, points: [] }]));
+    expect(loadImportedGpsActivities()[0].route[0]).toMatchObject({ heartRate: 120, elevationM: 100 });
+    window.localStorage.setItem('hbk_gps_runs', JSON.stringify([{ id: 'app-run', date: '2026-10-28', distanceKm: 1, durationSec: 500, movingSec: 480, pausedSec: 20, quality: { grade: 'good', medianAccuracyM: 4.5, acceptedSegments: 9, rejectedPoints: 1, stationarySamples: 2, gapSeconds: 3, backgroundGapSeconds: 4 }, points: [{ lat: 37.7, lng: 29, t: Date.parse('2026-10-28T06:00:00Z'), acc: 4.2, speed: 2 }, { lat: 37.701, lng: 29, t: Date.parse('2026-10-28T06:01:00Z'), acc: 5.1, speed: 2.2 }] }, { id: 'demo-run', date: '2026-10-28', distanceKm: 99, durationSec: 500, movingSec: 480, points: [] }]));
     window.localStorage.setItem('hbk_skill_tests_v1', JSON.stringify([{ id: 'test-1', name: '20m sprint', unit: 'sn', category: 'Hız', history: [{ date: '2026-10-20', value: 3.2 }] }]));
     const workout = { id: 'recovery-1', date: '2026-10-29', type: 'toparlanma', wellness: { sleep: 4, energy: 3, soreness: 2, stress: 2 } } as LegacyWorkout;
     const result = readSupplementalAnalytics([workout]);
     expect(result.gpsActivities).toHaveLength(2);
+    expect(result.gpsActivities.find((activity) => activity.id === 'app-run')).toMatchObject({ pausedSeconds: 20, quality: { grade: 'good', medianAccuracyM: 4.5, rejectedPoints: 1 } });
+    expect(result.gpsActivities.find((activity) => activity.id === 'app-run')?.route[0]).toMatchObject({ accuracyM: 4.2, speedKmh: 7.2 });
+    expect(result.gpsActivities.find((activity) => activity.id === 'app-run')?.route[1].distanceKm).toBeCloseTo(0.111);
     expect(result.skillTests[0].name).toBe('20m sprint');
     expect(result.wellness[0]).toMatchObject({ sleep: 4, energy: 3, soreness: 2, stress: 2 });
   });

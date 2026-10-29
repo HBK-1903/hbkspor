@@ -2,6 +2,11 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
+import './visual-features.css';
+import './selected-features.css';
+import './follow-up-features.css';
+import './report-media-notifications.css';
+import './advanced-notifications.css';
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {

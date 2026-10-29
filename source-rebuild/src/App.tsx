@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { exportJson, exportSessionsCsv, loadAppData, saveAppData } from './storage';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
+import { DEFAULT_NOTIFICATION_PREFERENCES, exportJson, exportSessionsCsv, loadAppData, saveAppData } from './storage';
 import {
   EXERCISE_LIBRARY,
   formatSetDetails,
@@ -16,7 +17,25 @@ import {
   summarizeMuscleWorkload,
   XP_REWARDS,
 } from './training';
-import type { AppData, ExerciseSet, LoggedExercise, MuscleGroup, SessionKind, TrainingSession } from './types';
+import type { AppData, CustomDrill, CustomGoal, ExerciseSet, LoggedExercise, MatchEvent, MatchEventType, MuscleGroup, PlayerCardAppearance, SessionKind, SkillTestRecord, TrainingSession, WeeklyPlanItem, WorkoutTemplate } from './types';
+import { DrillLibrary, ExerciseVisualLibrary, GpsActivityLibrary, ProgressAchievements, WeeklyComparison, WeeklyPlanner } from './visual-features';
+import type { Drill } from './drills';
+import type { GpsActivity } from './types';
+import { PlayerCardEditor } from './PlayerCardEditor';
+import { DEFAULT_CARD_APPEARANCE } from './player-card';
+import { clearMatchMedia, clearVoiceNotes, deleteMatchMedia, deleteVoiceNote, saveMatchMedia, saveVoiceNote } from './audio-notes';
+import { MatchMediaGallery, MatchMediaPicker } from './MatchMedia';
+import type { PendingMatchMedia } from './MatchMedia';
+import { NotificationSettings } from './NotificationSettings';
+import { getDueNotifications } from './notification-schedule';
+import { CoachReport, SeasonJournal } from './report-journal';
+import { expandWeeklyPlan } from './weekly-plan';
+import type { WeeklyPlanDraft } from './weekly-plan';
+import { buildPushSchedule } from './push-schedule';
+import { disableWebPush, enableWebPush, isPushBackendConfigured, isPushLocallyEnabled, syncWebPushSchedule } from './push-client';
+
+import { VoiceNoteRecorder } from './VoiceNoteRecorder';
+import { VoiceNotePlayback } from './VoiceNotePlayback';
 
 const GOALS = [
   { id: 'water', title: 'Günde en az 3 litre su iç', detail: 'Kramp önleme ve performans' },
@@ -39,6 +58,16 @@ const LABELS: Record<SessionKind, string> = {
   gym: 'Gym', pitch: 'Saha', match: 'Maç', gps: 'GPS koşusu', timer: 'Tempo timer', recovery: 'Toparlanma', rest: 'Dinlenme',
 };
 
+const MATCH_EVENT_LABELS: Record<MatchEventType, string> = { goal: 'Gol', assist: 'Asist', 'yellow-card': 'Sarı kart', 'red-card': 'Kırmızı kart', substitution: 'Oyuncu değişikliği', note: 'Not' };
+const SKILL_TEST_TEMPLATES = [
+  { id: 'sprint-10m', name: '10 m sprint', category: 'Hız', unit: 'sn', lowerIsBetter: true },
+  { id: 'sprint-20m', name: '20 m sprint', category: 'Hız', unit: 'sn', lowerIsBetter: true },
+  { id: 'sprint-30m', name: '30 m sprint', category: 'Hız', unit: 'sn', lowerIsBetter: true },
+  { id: 'agility-505', name: '505 çeviklik testi', category: 'Çeviklik', unit: 'sn', lowerIsBetter: true },
+  { id: 'jump', name: 'Dikey sıçrama', category: 'Güç', unit: 'cm', lowerIsBetter: false },
+  { id: 'cooper', name: '12 dk koşu', category: 'Dayanıklılık', unit: 'm', lowerIsBetter: false },
+] as const;
+
 const shortDate = (value: string) => new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' }).format(new Date(`${value}T12:00:00`));
 const numberFormat = (value: number, maximumFractionDigits = 1) => new Intl.NumberFormat('tr-TR', { maximumFractionDigits }).format(value);
 
@@ -59,9 +88,10 @@ const freshSetDraft = (): SetDraft => ({ reps: '10', weightKg: '0', rpe: '7', re
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadAppData());
   const [tab, setTab] = useState<'home' | 'calendar' | 'stats' | 'settings'>('home');
-  const [statsView, setStatsView] = useState<'overview' | 'muscles'>('overview');
+  const [statsView, setStatsView] = useState<'overview' | 'muscles' | 'tests' | 'drills' | 'exercises' | 'gps' | 'achievements' | 'comparison' | 'report' | 'journal'>('overview');
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeKind, setActiveKind] = useState<SessionKind | null>(null);
+  const [activePlanId, setActivePlanId] = useState<string | null>(null);
   const [profileName, setProfileName] = useState('');
   const [showProfileForm, setShowProfileForm] = useState(false);
   const [position, setPosition] = useState('Orta saha');
@@ -70,18 +100,66 @@ export default function App() {
   const [minutes, setMinutes] = useState('45');
   const [note, setNote] = useState('');
   const [score, setScore] = useState('');
+  const [matchEventMinute, setMatchEventMinute] = useState('');
+  const [matchEventType, setMatchEventType] = useState<MatchEventType>('goal');
+  const [matchEventDetail, setMatchEventDetail] = useState('');
+  const [matchEvents, setMatchEvents] = useState<MatchEvent[]>([]);
+  const [templateName, setTemplateName] = useState('');
+  const [restRemaining, setRestRemaining] = useState<number | null>(null);
   const [exerciseDraft, setExerciseDraft] = useState<ExerciseDraft>(freshExerciseDraft);
   const [setDraft, setSetDraft] = useState<SetDraft>(freshSetDraft);
   const [pendingSets, setPendingSets] = useState<ExerciseSet[]>([]);
   const [loggedExercises, setLoggedExercises] = useState<LoggedExercise[]>([]);
+  const [voiceNoteBlob, setVoiceNoteBlob] = useState<Blob | null>(null);
+  const [voiceRecording, setVoiceRecording] = useState(false);
+  const [pendingMatchMedia, setPendingMatchMedia] = useState<PendingMatchMedia[]>([]);
+  const [savingSession, setSavingSession] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(() => isPushLocallyEnabled());
+  const [pushError, setPushError] = useState('');
   const [toast, setToast] = useState('');
+  const notificationInFlight = useRef(new Set<string>());
 
   useEffect(() => saveAppData(data), [data]);
+  useEffect(() => {
+    if (restRemaining === null) return;
+    if (restRemaining <= 0) { setRestRemaining(null); setToast('Dinlenme süresi tamamlandı.'); return; }
+    const timer = window.setTimeout(() => setRestRemaining((remaining) => remaining === null ? null : remaining - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [restRemaining]);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(''), 2600);
     return () => window.clearTimeout(timer);
   }, [toast]);
+  useEffect(() => {
+    const preferences = data.notificationPreferences ?? DEFAULT_NOTIFICATION_PREFERENCES;
+    if (!preferences.enabled || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const deliverDue = async () => {
+      const due = getDueNotifications(data, new Date()).filter((notice) => !notificationInFlight.current.has(notice.key));
+      if (!due.length) return;
+      due.forEach((notice) => notificationInFlight.current.add(notice.key));
+      const delivered = await Promise.all(due.map(async (notice) => {
+        try {
+          const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
+          if (registration) await registration.showNotification(notice.title, { body: notice.body, icon: '/icon-192.png', badge: '/icon-192.png', tag: notice.key });
+          else new Notification(notice.title, { body: notice.body, tag: notice.key });
+          return notice.key;
+        } catch { return null; }
+      }));
+      due.forEach((notice) => notificationInFlight.current.delete(notice.key));
+      const keys = delivered.filter((key): key is string => Boolean(key));
+      if (keys.length) setData((current) => ({ ...current, notificationSentKeys: [...new Set([...(current.notificationSentKeys ?? []), ...keys])].slice(-500) }));
+    };
+    void deliverDue();
+    const timer = window.setInterval(() => { void deliverDue(); }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [data.notificationPreferences, data.notificationSentKeys, data.weeklyPlan, data.sessions, data.gpsActivities, data.demoMode]);
+  useEffect(() => {
+    if (!pushEnabled || !isPushBackendConfigured()) return;
+    void syncWebPushSchedule(buildPushSchedule(data)).then(() => setPushError('')).catch((reason: unknown) => {
+      setPushError(reason instanceof Error ? reason.message : 'Push programı sunucuya eşitlenemedi.');
+    });
+  }, [pushEnabled, data.notificationPreferences, data.weeklyPlan, data.sessions, data.gpsActivities, data.demoMode, data.notificationSentKeys]);
 
   const today = localDateKey();
   const todayGoals = data.goalCompletions?.[today] ?? [];
@@ -104,31 +182,48 @@ export default function App() {
   const createProfile = () => {
     const trimmed = profileName.trim();
     if (!trimmed) return;
-    setData((current) => ({ ...current, profile: { name: trimmed, position, dominantFoot: foot, createdAt: today } }));
+    setData((current) => ({ ...current, demoMode: false, profile: { name: trimmed, position, dominantFoot: foot, createdAt: today } }));
     setToast(`Hoş geldin, ${trimmed}!`);
   };
 
   const startDemo = () => {
     setData({
       profile: { name: 'Yıldız', position: 'Kanat', dominantFoot: 'Sağ', createdAt: today },
+      demoMode: true,
       sessions: [{ id: crypto.randomUUID(), kind: 'pitch', title: 'İlk saha çalışmam', minutes: 35, xp: XP_REWARDS.pitch, date: today, note: 'Demo antrenmanı' }],
       completedGoals: [],
       goalCompletions: {},
+      workoutTemplates: [],
+      skillTests: [],
+      gpsActivities: [],
+      weeklyPlan: [],
+      customGoals: [],
+      customDrills: [],
     });
     setToast('Demo profili hazır. Veriler bu cihazda kalır.');
   };
 
   const openAction = (kind: SessionKind) => {
+    setActivePlanId(null);
     setActiveKind(kind);
     setSheetOpen(false);
     setTitle(kind === 'gym' ? 'Kuvvet antrenmanı' : kind === 'pitch' ? 'Teknik çalışma' : kind === 'match' ? 'Haftalık maç' : LABELS[kind]);
     setMinutes(kind === 'rest' ? '0' : '45');
     setNote('');
     setScore('');
+    setMatchEvents([]);
+    setMatchEventMinute('');
+    setMatchEventDetail('');
+    setRestRemaining(null);
+    setTemplateName('');
     setExerciseDraft(freshExerciseDraft());
     setSetDraft(freshSetDraft());
     setPendingSets([]);
     setLoggedExercises([]);
+    setVoiceNoteBlob(null);
+    setVoiceRecording(false);
+    setPendingMatchMedia([]);
+    setSavingSession(false);
   };
 
   const addSet = () => {
@@ -145,6 +240,7 @@ export default function App() {
       return;
     }
     setPendingSets((current) => [...current, { id: crypto.randomUUID(), reps, weightKg, rpe, restSeconds }]);
+    if (restSeconds > 0) setRestRemaining(restSeconds);
   };
 
   const addExercise = () => {
@@ -161,13 +257,150 @@ export default function App() {
     setPendingSets([]);
   };
 
-  const saveSession = () => {
+  const cloneExercises = (exercises: LoggedExercise[] = []) => exercises.map((exercise) => ({
+    ...exercise,
+    id: crypto.randomUUID(),
+    setDetails: exercise.setDetails?.map((set) => ({ ...set, id: crypto.randomUUID() })),
+    primaryMuscles: [...exercise.primaryMuscles],
+    secondaryMuscles: [...exercise.secondaryMuscles],
+  }));
+
+  const copyLastGymWorkout = () => {
+    const lastGym = data.sessions.find((session) => session.kind === 'gym' && session.exercises?.length);
+    if (!lastGym) return;
+    setTitle(lastGym.title);
+    setMinutes(String(lastGym.minutes));
+    setNote(lastGym.note ?? '');
+    setLoggedExercises(cloneExercises(lastGym.exercises));
+    setPendingSets([]);
+    setToast('Son gym antrenmanı yeni kayıt için kopyalandı.');
+  };
+
+  const applyTemplate = (template: WorkoutTemplate) => {
+    setTitle(template.name);
+    setMinutes(String(template.minutes));
+    setNote(template.note ?? '');
+    setLoggedExercises(cloneExercises(template.exercises));
+    setPendingSets([]);
+    setToast(`${template.name} şablonu yüklendi.`);
+  };
+
+  const saveWorkoutTemplate = () => {
+    if (activeKind !== 'gym' && activeKind !== 'pitch') return;
+    const name = templateName.trim() || title.trim();
+    if (!name || (data.workoutTemplates?.length ?? 0) >= 20) {
+      setToast('Şablona bir ad ver; en fazla 20 şablon saklanabilir.');
+      return;
+    }
+    const template: WorkoutTemplate = {
+      id: crypto.randomUUID(), name: name.slice(0, 48), kind: activeKind,
+      minutes: Math.max(0, Math.min(600, Math.round(Number(minutes) || 0))),
+      ...(note.trim() ? { note: note.trim().slice(0, 500) } : {}),
+      ...(activeKind === 'gym' && loggedExercises.length ? { exercises: cloneExercises(loggedExercises) } : {}),
+    };
+    setData((current) => ({ ...current, workoutTemplates: [...(current.workoutTemplates ?? []), template] }));
+    setTemplateName('');
+    setToast('Antrenman şablonu kaydedildi.');
+  };
+
+  const deleteWorkoutTemplate = (id: string) => setData((current) => ({ ...current, workoutTemplates: (current.workoutTemplates ?? []).filter((template) => template.id !== id) }));
+
+  const addMatchEvent = () => {
+    const minute = Number(matchEventMinute);
+    if (!Number.isInteger(minute) || minute < 0 || minute > 150 || matchEvents.length >= 50) {
+      setToast('Maç dakikası 0–150 arasında olmalı; en fazla 50 olay eklenebilir.');
+      return;
+    }
+    const event: MatchEvent = { id: crypto.randomUUID(), minute, type: matchEventType, ...(matchEventDetail.trim() ? { detail: matchEventDetail.trim().slice(0, 100) } : {}) };
+    setMatchEvents((current) => [...current, event].sort((a, b) => a.minute - b.minute));
+    setMatchEventMinute('');
+    setMatchEventDetail('');
+  };
+
+  const saveSkillTest = (test: Omit<SkillTestRecord, 'id' | 'date'>) => {
+    const record: SkillTestRecord = { ...test, id: crypto.randomUUID(), date: today };
+    setData((current) => ({ ...current, skillTests: [record, ...(current.skillTests ?? [])] }));
+    setToast(`${test.name} sonucu kaydedildi.`);
+  };
+
+  const importGpsActivity = (activity: GpsActivity) => {
+    setData((current) => ({ ...current, gpsActivities: [activity, ...(current.gpsActivities ?? [])] }));
+    setToast(`Rota eklendi · ${numberFormat(activity.distanceKm, 2)} km. Antrenman sayısına eklenmedi.`);
+  };
+
+  const deleteGpsActivity = (id: string) => {
+    if (!window.confirm('Bu GPX rotasını bu cihazdan silmek istiyor musun?')) return;
+    setData((current) => ({ ...current, gpsActivities: (current.gpsActivities ?? []).filter((activity) => activity.id !== id) }));
+    setToast('GPX rotası silindi.');
+  };
+
+  const startDrill = (drill: Drill) => {
+    openAction('pitch');
+    setTitle(drill.name);
+    setMinutes(String(drill.duration));
+    setNote(`${drill.description} İpuçları: ${drill.cues.join('; ')}.`);
+    setToast(`${drill.name} saha kaydına hazırlandı.`);
+  };
+
+  const startExercise = (exerciseId: string) => {
+    openAction('gym');
+    setExerciseDraft({ exerciseId });
+    setToast('Hareket seçildi; setlerini Gym kaydına ekle.');
+  };
+
+  const addPlanItem = (item: WeeklyPlanDraft) => {
+    const currentCount = data.weeklyPlan?.length ?? 0;
+    if (currentCount + item.repeatCount > 100) { setToast('Haftalık planda en fazla 100 kayıt saklanabilir.'); return; }
+    const occurrences = expandWeeklyPlan(item);
+    setData((current) => ({ ...current, weeklyPlan: [...(current.weeklyPlan ?? []), ...occurrences] }));
+    setToast(item.repeatCount === 1 ? 'Çalışma haftalık plana eklendi.' : `${item.repeatCount} haftalık tekrar planlandı.`);
+  };
+
+  const deletePlanItem = (id: string, deleteSeries = false) => {
+    const selected = data.weeklyPlan?.find((item) => item.id === id);
+    setData((current) => ({ ...current, weeklyPlan: (current.weeklyPlan ?? []).filter((item) => deleteSeries && selected?.recurrenceId ? item.recurrenceId !== selected.recurrenceId : item.id !== id) }));
+  };
+
+  const startPlanItem = (item: WeeklyPlanItem) => {
+    openAction(item.kind);
+    setActivePlanId(item.id);
+    setTitle(item.title);
+    setMinutes(String(item.minutes));
+    setToast('Plan kayda dönüştürülmeye hazır. Kaydedince gerçek seans olarak işaretlenir.');
+  };
+
+  const addCustomGoal = (goal: Omit<CustomGoal, 'id' | 'createdAt'>) => {
+    setData((current) => ({ ...current, customGoals: [...(current.customGoals ?? []), { ...goal, id: crypto.randomUUID(), createdAt: today }] }));
+    setToast('Kişisel hedef oluşturuldu.');
+  };
+
+  const deleteCustomGoal = (id: string) => setData((current) => ({ ...current, customGoals: (current.customGoals ?? []).filter((goal) => goal.id !== id) }));
+
+  const saveCardAppearance = (playerCard: PlayerCardAppearance) => {
+    setData((current) => ({ ...current, playerCard }));
+    setToast('Oyuncu kartı görünümü kaydedildi.');
+  };
+
+  const saveCustomDrill = (drill: Omit<CustomDrill, 'id' | 'createdAt'>) => {
+    if ((data.customDrills?.length ?? 0) >= 20) { setToast('En fazla 20 özel drill saklanabilir.'); return; }
+    setData((current) => ({ ...current, customDrills: [{ ...drill, id: crypto.randomUUID(), createdAt: today }, ...(current.customDrills ?? [])] }));
+    setToast('Kişisel saha şeması kaydedildi.');
+  };
+
+  const deleteCustomDrill = (id: string) => setData((current) => ({ ...current, customDrills: (current.customDrills ?? []).filter((drill) => drill.id !== id) }));
+
+  const saveSession = async () => {
     if (!activeKind) return;
+    if (voiceRecording) { setToast('Önce ses kaydını bitir.'); return; }
     const duration = Number(minutes);
     if (!Number.isFinite(duration) || duration < 0 || duration > 600) {
       setToast('Süre 0–600 dakika arasında olmalı.');
       return;
     }
+    if (savingSession) return;
+    const mediaItems = activeKind === 'match' ? pendingMatchMedia : [];
+    const mediaIds = mediaItems.map((item) => item.id);
+    const voiceNoteId = voiceNoteBlob ? crypto.randomUUID() : undefined;
     const session: TrainingSession = {
       id: crypto.randomUUID(),
       kind: activeKind,
@@ -177,10 +410,32 @@ export default function App() {
       date: today,
       note: note.trim(),
       ...(score.trim() ? { score: score.trim() } : {}),
+      ...(activeKind === 'match' && matchEvents.length ? { matchEvents: [...matchEvents].sort((a, b) => a.minute - b.minute) } : {}),
       ...(activeKind === 'gym' && loggedExercises.length ? { exercises: loggedExercises } : {}),
+      ...(voiceNoteId ? { voiceNoteId } : {}),
+      ...(mediaIds.length ? { matchMediaIds: mediaIds } : {}),
     };
-    setData((current) => ({ ...current, sessions: [session, ...current.sessions] }));
+    setSavingSession(true);
+    try {
+      for (const item of mediaItems) await saveMatchMedia(item.id, item.blob);
+      if (voiceNoteBlob && voiceNoteId) await saveVoiceNote(voiceNoteId, voiceNoteBlob);
+    } catch (reason) {
+      await Promise.allSettled([...mediaIds.map((id) => deleteMatchMedia(id)), ...(voiceNoteId ? [deleteVoiceNote(voiceNoteId)] : [])]);
+      setSavingSession(false);
+      setToast(reason instanceof Error ? reason.message : 'Kayıt medyası saklanamadı.');
+      return;
+    }
+    const planId = activePlanId;
+    setData((current) => ({
+      ...current,
+      sessions: [session, ...current.sessions],
+      weeklyPlan: planId ? (current.weeklyPlan ?? []).map((item) => item.id === planId ? { ...item, completedSessionId: session.id } : item) : current.weeklyPlan,
+    }));
+    setActivePlanId(null);
     setActiveKind(null);
+    setRestRemaining(null);
+    setPendingMatchMedia([]);
+    setSavingSession(false);
     setToast(activeKind === 'gym' && loggedExercises.length === 0
       ? 'Genel Gym kaydı eklendi. Kas analizi için sonraki kayıtta hareket detayı ekleyebilirsin.'
       : `${LABELS[session.kind]} kaydı eklendi · +${session.xp} XP`);
@@ -200,10 +455,18 @@ export default function App() {
     });
   };
 
-  const resetProfile = () => {
-    if (!window.confirm('Bu cihazdaki HBK Spor profilini ve kayıtlarını sıfırlamak istiyor musun?')) return;
-    setData({ profile: null, sessions: [], completedGoals: [], goalCompletions: {} });
-    setToast('Profil sıfırlandı.');
+  const resetProfile = async () => {
+    if (!window.confirm('Bu cihazdaki HBK Spor profilini, kayıtlarını, sesli notlarını, maç albümünü ve push aboneliğini sıfırlamak istiyor musun?')) return;
+    let cleanupWarning = '';
+    try { await Promise.all([clearVoiceNotes(), clearMatchMedia()]); }
+    catch { cleanupWarning = ' Medya deposu tarayıcı tarafından kilitli; tekrar deneyebilirsin.'; }
+    if (pushEnabled) {
+      try { await disableWebPush(); }
+      catch { cleanupWarning += ' Push sunucusu erişilemedi; cihaz aboneliği kaldırıldı, kalan kayıt sunucuya ulaşılamadı.'; }
+      finally { setPushEnabled(false); }
+    }
+    setData({ profile: null, demoMode: false, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [], weeklyPlan: [], customGoals: [], customDrills: [], playerCard: undefined });
+    setToast(`Profil ve kayıtlar sıfırlandı.${cleanupWarning}`);
   };
 
   const renderHome = () => (
@@ -212,7 +475,8 @@ export default function App() {
         <div><p className="eyebrow">HBK SPOR · PERFORMANS GÜNLÜĞÜ</p><h1>Hoş geldin, {data.profile?.name}</h1></div>
         <button className="avatar" aria-label="Ayarlar" onClick={() => setTab('settings')}>{data.profile?.name.slice(0, 1).toUpperCase()}</button>
       </header>
-      <section className="player-card">
+      <section className={`player-card player-card--${data.playerCard?.theme ?? 'field'}`} style={{ '--card-photo-zoom': data.playerCard?.zoom ?? 1, '--card-photo-position': `${data.playerCard?.positionY ?? 42}%`, '--card-photo-saturation': data.playerCard?.saturation ?? DEFAULT_CARD_APPEARANCE.saturation, '--card-photo-brightness': data.playerCard?.brightness ?? DEFAULT_CARD_APPEARANCE.brightness } as CSSProperties}>
+        {data.playerCard?.photoDataUrl && <img className="player-card__photo" src={data.playerCard.photoDataUrl} alt="Oyuncu kartı fotoğrafı" />}
         <div className="player-card__head"><div><span className="muted-label">OYUNCU KARTI</span><h2>{data.profile?.position}</h2></div><span className="level-badge">🥉 Lv.{level} Çaylak</span></div>
         <div className="rating-row">
           <span><b>{weekDays.filter((day) => day.active).length}</b><small>AKTİF GÜN</small></span>
@@ -232,30 +496,70 @@ export default function App() {
   );
 
   const renderCalendar = () => (
-    <><header className="topbar"><div><p className="eyebrow">TAKVİM</p><h1>Antrenman günlüğü</h1></div><span className="streak">🔥 {streak} gün</span></header><section className="card momentum"><p className="eyebrow">BU HAFTA</p><h2>{weekDays.filter((day) => day.active).length} aktif gün</h2><div className="week-row">{weekDays.map((day) => <div key={day.key} className="week-day"><span>{day.label}</span><i className={day.active ? 'done' : ''}>{day.active ? '✓' : '·'}</i></div>)}</div></section><section className="card recent"><div className="section-head compact"><div><p className="eyebrow">KAYIT ARŞİVİ</p><h2>{data.sessions.length} çalışma</h2></div><button className="text-button" onClick={() => setSheetOpen(true)}>+ Ekle</button></div>{data.sessions.length ? data.sessions.map((session) => <SessionRow key={session.id} session={session} />) : <p className="empty-copy">Henüz kayıt yok. İlk çalışmanı ekle.</p>}</section></>
+    <><header className="topbar"><div><p className="eyebrow">TAKVİM</p><h1>Antrenman günlüğü</h1></div><span className="streak">🔥 {streak} gün</span></header><WeeklyPlanner items={data.weeklyPlan ?? []} onAdd={addPlanItem} onDelete={deletePlanItem} onStart={startPlanItem} /><section className="card momentum"><p className="eyebrow">BU HAFTA</p><h2>{weekDays.filter((day) => day.active).length} aktif gün</h2><div className="week-row">{weekDays.map((day) => <div key={day.key} className="week-day"><span>{day.label}</span><i className={day.active ? 'done' : ''}>{day.active ? '✓' : '·'}</i></div>)}</div></section><section className="card recent"><div className="section-head compact"><div><p className="eyebrow">KAYIT ARŞİVİ</p><h2>{data.sessions.length} çalışma</h2></div><button className="text-button" onClick={() => setSheetOpen(true)}>+ Ekle</button></div>{data.sessions.length ? data.sessions.map((session) => <SessionRow key={session.id} session={session} />) : <p className="empty-copy">Henüz kayıt yok. İlk çalışmanı ekle.</p>}</section></>
   );
 
   const renderStats = () => (
     <>
       <header className="topbar"><div><p className="eyebrow">İSTATİSTİK</p><h1>Gelişim özeti</h1></div><span className="level-badge">Lv.{level}</span></header>
       <div className="segmented-control" role="tablist" aria-label="İstatistik görünümü">
-        <button role="tab" aria-selected={statsView === 'overview'} className={statsView === 'overview' ? 'active' : ''} onClick={() => setStatsView('overview')}>Genel bakış</button>
-        <button role="tab" aria-selected={statsView === 'muscles'} className={statsView === 'muscles' ? 'active' : ''} onClick={() => setStatsView('muscles')}>Kas yükü</button>
+        {([
+          ['overview', 'Genel'], ['muscles', 'Kas yükü'], ['tests', 'Testler'],
+          ['drills', 'Drill'], ['exercises', 'Hareket'], ['gps', 'GPS'], ['achievements', 'Rozetler'], ['comparison', 'Hafta'], ['report', 'Koç raporu'], ['journal', 'Sezon günlüğü'],
+        ] as const).map(([view, label]) => <button key={view} role="tab" aria-selected={statsView === view} className={statsView === view ? 'active' : ''} onClick={() => setStatsView(view)}>{label}</button>)}
       </div>
-      {statsView === 'muscles' ? (
+      {statsView === 'report' ? <CoachReport data={data} />
+      : statsView === 'journal' ? <SeasonJournal data={data} />
+      : statsView === 'muscles' ? (
         <MuscleAnalysis sessions={data.sessions} weekStart={weekStart} onAddGym={() => openAction('gym')} />
+      ) : statsView === 'tests' ? (
+        <PerformanceTests records={data.skillTests ?? []} onSave={saveSkillTest} />
+      ) : statsView === 'drills' ? (
+        <DrillLibrary onUse={startDrill} customDrills={data.customDrills ?? []} onSaveCustom={saveCustomDrill} onDeleteCustom={deleteCustomDrill} />
+      ) : statsView === 'exercises' ? (
+        <ExerciseVisualLibrary onChoose={startExercise} />
+      ) : statsView === 'gps' ? (
+        <GpsActivityLibrary activities={data.gpsActivities ?? []} onImport={importGpsActivity} onDelete={deleteGpsActivity} />
+      ) : statsView === 'achievements' ? (
+        <ProgressAchievements data={data} weekStart={weekStart} onAddGoal={addCustomGoal} onDeleteGoal={deleteCustomGoal} />
+      ) : statsView === 'comparison' ? (
+        <WeeklyComparison data={data} />
       ) : (
         <>
           <div className="stats-grid"><StatCard icon="⚡" value={String(totalXp)} label="Toplam XP" /><StatCard icon="📅" value={String(data.sessions.length)} label="Toplam seans" /><StatCard icon="🔥" value={String(streak)} label="Seri günü" /><StatCard icon="⏱️" value={`${data.sessions.reduce((sum, session) => sum + session.minutes, 0)}′`} label="Toplam süre" /></div>
           <section className="card"><p className="eyebrow">ÇALIŞMA DAĞILIMI</p><h2>Seans türleri</h2>{ACTIONS.map((action) => { const count = data.sessions.filter((session) => session.kind === action.kind).length; return <div key={action.kind} className="bar-row"><span>{action.icon} {action.label.replace('+ ', '')}</span><div className="bar"><i style={{ width: `${data.sessions.length ? Math.min(100, (count / data.sessions.length) * 100) : 0}%` }} /></div><b>{count}</b></div>; })}</section>
           <section className="card"><div className="section-head compact"><div><p className="eyebrow">KUVVET DETAYI</p><h2>Kas gruplarını incele</h2></div><span>💪</span></div><p className="empty-copy">Hareket, set, tekrar, ağırlık ve algılanan efor bilgilerini kaydedip haftalık tahmini kas yükünü gör.</p><button className="secondary-button full-button" onClick={() => setStatsView('muscles')}>Kas yükü raporunu aç</button></section>
+          <div className="feature-shortcuts"><button onClick={() => setStatsView('drills')}><span>⚽</span><b>Görselli drill’ler</b><small>Saha çizimleriyle çalışma seç</small></button><button onClick={() => setStatsView('exercises')}><span>💪</span><b>Hareket galerisi</b><small>Kas grubuna göre ara</small></button><button onClick={() => setStatsView('gps')}><span>⌁</span><b>GPS rotaları</b><small>GPX içe aktar ve haritada gör</small></button><button onClick={() => setStatsView('achievements')}><span>✦</span><b>İlerleme & hedefler</b><small>Kişisel kilometre taşları</small></button><button onClick={() => setStatsView('comparison')}><span>↔</span><b>Hafta kıyasla</b><small>Eşit gün aralıklarını karşılaştır</small></button></div>
         </>
       )}
     </>
   );
 
+  const enableNotifications = async () => {
+    if (typeof Notification === 'undefined' || !('Notification' in window)) { setToast('Bu tarayıcı sistem bildirimlerini desteklemiyor.'); return; }
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') setData((current) => ({ ...current, notificationPreferences: { ...(current.notificationPreferences ?? DEFAULT_NOTIFICATION_PREFERENCES), enabled: true } }));
+      else setToast(permission === 'denied' ? 'İzin tarayıcı ayarlarından reddedildi.' : 'Bildirim izni verilmedi.');
+    } catch { setToast('Bildirim izni bu sayfada kullanılamıyor. HTTPS bağlantısını dene.'); }
+  };
+  const notificationPermission: NotificationPermission | 'unsupported' = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+  const pushState: 'unconfigured' | 'off' | 'on' = !isPushBackendConfigured() ? 'unconfigured' : pushEnabled ? 'on' : 'off';
+  const enablePushNotifications = async () => {
+    try {
+      await enableWebPush();
+      setPushEnabled(true);
+      setPushError('');
+    } catch (reason) { setPushError(reason instanceof Error ? reason.message : 'Push aboneliği kurulamadı.'); }
+  };
+  const disablePushNotifications = async () => {
+    try { await disableWebPush(); setPushError(''); }
+    catch (reason) { setPushError(reason instanceof Error ? reason.message : 'Push aboneliği kaldırılamadı.'); }
+    finally { setPushEnabled(false); }
+  };
+
   const renderSettings = () => (
-    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>Yedekle ve dışa aktar</h2><p className="empty-copy">Kayıtların yalnızca bu cihazda saklanır. İstediğinde yedeğini alabilirsin.</p><div className="settings-actions"><button className="primary-button" onClick={() => exportJson(data)}>JSON yedeği al</button><button className="secondary-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></div></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.2.0</p></>
+    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><PlayerCardEditor profile={data.profile!} appearance={data.playerCard} stats={{ sessions: data.sessions.length, xp: totalXp, level }} onSave={saveCardAppearance} /><NotificationSettings preferences={data.notificationPreferences ?? DEFAULT_NOTIFICATION_PREFERENCES} permission={notificationPermission} onEnable={enableNotifications} onUpdate={(notificationPreferences) => setData((current) => ({ ...current, notificationPreferences }))} pushState={pushState} pushError={pushError} onEnablePush={enablePushNotifications} onDisablePush={disablePushNotifications} /><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>Yedekle ve dışa aktar</h2><p className="empty-copy">Kayıtların yalnızca bu cihazda saklanır. İstediğinde JSON veya CSV yedeği alabilirsin.</p><p className="field-help">Sesli notlar ve maç albümü bu cihazdaki ayrı yerel depoda kalır; JSON / CSV dosyasına eklenmez.</p><div className="settings-actions"><button className="primary-button" onClick={() => exportJson(data)}>JSON yedeği al</button><button className="secondary-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></div></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.2.0</p></>
   );
 
   if (!data.profile) {
@@ -294,7 +598,17 @@ export default function App() {
         <button className={tab === 'settings' ? 'selected' : ''} onClick={() => setTab('settings')}><span>⚙</span><small>Ayarlar</small></button>
       </nav>
       {sheetOpen && <div className="scrim" onMouseDown={() => setSheetOpen(false)}><section className="action-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-handle" /><div className="section-head compact"><div><p className="eyebrow">YENİ KAYIT</p><h2 id="sheet-title">Bugün ne yaptın?</h2></div><button className="close-button" aria-label="Kapat" onClick={() => setSheetOpen(false)}>×</button></div><div className="action-list">{ACTIONS.map((action) => <button key={action.kind} onClick={() => openAction(action.kind)}><span className="action-icon">{action.icon}</span><span><b>{action.label}</b><small>{action.hint}</small></span><span className="route-arrow">›</span></button>)}</div></section></div>}
-      {activeKind && <div className="scrim" onMouseDown={() => setActiveKind(null)}><section className="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-title" onMouseDown={(event) => event.stopPropagation()}><div className="section-head compact"><div><p className="eyebrow">{LABELS[activeKind].toUpperCase()} KAYDI</p><h2 id="session-title">Çalışmanı kaydet</h2></div><button className="close-button" aria-label="Kapat" onClick={() => setActiveKind(null)}>×</button></div><label className="field-label">Çalışma adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={60} /></label>{activeKind === 'match' && <label className="field-label">Skor<input value={score} onChange={(event) => setScore(event.target.value)} placeholder="2-1" /></label>}<label className="field-label">Süre (dakika)<input type="number" min="0" max="600" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>{activeKind === 'gym' && <ExerciseLogger draft={exerciseDraft} setDraft={setExerciseDraft} setDraftValue={setDraft} setSetDraft={setSetDraft} pendingSets={pendingSets} onAddSet={addSet} onRemoveSet={(id) => setPendingSets((current) => current.filter((set) => set.id !== id))} entries={loggedExercises} onAdd={addExercise} onRemove={(id) => setLoggedExercises((current) => current.filter((entry) => entry.id !== id))} />}<label className="field-label">Not<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Nasıl geçti?" /></label><button className="primary-button full-button" onClick={saveSession}>Kaydı tamamla</button></section></div>}
+      {activeKind && <div className="scrim" onMouseDown={() => { setActiveKind(null); setActivePlanId(null); setRestRemaining(null); }}><section className="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="section-head compact"><div><p className="eyebrow">{LABELS[activeKind].toUpperCase()} KAYDI</p><h2 id="session-title">Çalışmanı kaydet</h2></div><button className="close-button" aria-label="Kapat" onClick={() => { setActiveKind(null); setActivePlanId(null); setRestRemaining(null); }}>×</button></div>
+        <label className="field-label">Çalışma adı<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={60} /></label>
+        {activeKind === 'match' && <><label className="field-label">Skor<input value={score} onChange={(event) => setScore(event.target.value)} placeholder="2-1" /></label><section className="match-event-editor"><div className="section-head compact"><div><p className="eyebrow">MAÇ RAPORU</p><h2>Olay zaman çizelgesi</h2></div><span>⚽</span></div><p className="field-help">Gol, asist, kart ve değişiklikleri gerçekleştiği dakikayla ekle. Bu alanlar oyuncu notudur; takım istatistiği yerine geçmez.</p><div className="match-event-form"><label className="field-label">Dakika<input aria-label="Olay dakikası" type="number" min="0" max="150" value={matchEventMinute} onChange={(event) => setMatchEventMinute(event.target.value)} placeholder="45" /></label><label className="field-label">Olay<select aria-label="Maç olayı" value={matchEventType} onChange={(event) => setMatchEventType(event.target.value as MatchEventType)}>{Object.entries(MATCH_EVENT_LABELS).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label></div><label className="field-label">Oyuncu / kısa not<input aria-label="Olay ayrıntısı" value={matchEventDetail} onChange={(event) => setMatchEventDetail(event.target.value)} maxLength={100} placeholder="Örn. asist: Deniz" /></label><button type="button" className="secondary-button full-button" onClick={addMatchEvent}>+ Maç olayını ekle</button>{matchEvents.length > 0 && <ol className="match-event-list">{matchEvents.map((event) => <li key={event.id}><time>{event.minute}′</time><span><b>{MATCH_EVENT_LABELS[event.type]}</b>{event.detail && <small>{event.detail}</small>}</span><button type="button" className="remove-exercise" aria-label={`${event.minute}. dakika olayını kaldır`} onClick={() => setMatchEvents((current) => current.filter((item) => item.id !== event.id))}>×</button></li>)}</ol>}</section><MatchMediaPicker items={pendingMatchMedia} onChange={setPendingMatchMedia} /></>}
+        <label className="field-label">Süre (dakika)<input type="number" min="0" max="600" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>
+        {(activeKind === 'gym' || activeKind === 'pitch') && <section className="template-tools"><div className="section-head compact"><div><p className="eyebrow">HIZLI BAŞLAT</p><h2>Şablonlar</h2></div><span>⚡</span></div>{activeKind === 'gym' && data.sessions.some((session) => session.kind === 'gym' && session.exercises?.length) && <button type="button" className="secondary-button full-button" onClick={copyLastGymWorkout}>Son gym antrenmanını kopyala</button>}{(data.workoutTemplates ?? []).filter((template) => template.kind === activeKind).map((template) => <div className="template-row" key={template.id}><button type="button" className="template-apply" onClick={() => applyTemplate(template)}><b>{template.name}</b><small>{template.minutes} dk · {template.exercises?.length ?? 0} hareket</small></button><button type="button" className="remove-exercise" aria-label={`${template.name} şablonunu sil`} onClick={() => deleteWorkoutTemplate(template.id)}>×</button></div>)}<label className="field-label">Bu kaydı şablon olarak sakla<input value={templateName} onChange={(event) => setTemplateName(event.target.value)} maxLength={48} placeholder={title || 'Şablon adı'} /></label><button type="button" className="secondary-button full-button" onClick={saveWorkoutTemplate}>Şablonu kaydet</button></section>}
+        {activeKind === 'gym' && <ExerciseLogger draft={exerciseDraft} setDraft={setExerciseDraft} setDraftValue={setDraft} setSetDraft={setSetDraft} pendingSets={pendingSets} onAddSet={addSet} onRemoveSet={(id) => setPendingSets((current) => current.filter((set) => set.id !== id))} entries={loggedExercises} onAdd={addExercise} onRemove={(id) => setLoggedExercises((current) => current.filter((entry) => entry.id !== id))} />}
+        {activeKind === 'gym' && restRemaining !== null && <div className="rest-timer" role="status" aria-live="polite"><div><small>SET ARASI DİNLENME</small><strong>{Math.floor(restRemaining / 60)}:{String(restRemaining % 60).padStart(2, '0')}</strong></div><button type="button" className="secondary-button" onClick={() => setRestRemaining(null)}>Durdur</button></div>}
+        <VoiceNoteRecorder onReady={setVoiceNoteBlob} onRecordingChange={setVoiceRecording} />
+        <label className="field-label">Not<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Nasıl geçti?" /></label><button className="primary-button full-button" disabled={voiceRecording || savingSession} onClick={saveSession}>{voiceRecording ? 'Önce ses kaydını bitir' : savingSession ? 'Cihaza kaydediliyor…' : 'Kaydı tamamla'}</button>
+      </section></div>}
       {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
     </div>
   );
@@ -450,7 +764,22 @@ function ProfileForm(props: { name: string; setName: (value: string) => void; po
 function SessionRow({ session }: { session: TrainingSession }) {
   const icon: Record<SessionKind, string> = { gym: '🏋️', pitch: '⚽', match: '🏟️', gps: '🏃', timer: '⏱️', recovery: '🧘', rest: '🌙' };
   const exerciseCount = session.exercises?.length ?? 0;
-  return <div className="session-row"><span className="session-icon">{icon[session.kind]}</span><span className="session-info"><b>{session.title}</b><small>{LABELS[session.kind]} · {shortDate(session.date)}{session.minutes ? ` · ${session.minutes} dk` : ''}{session.score ? ` · ${session.score}` : ''}{exerciseCount ? ` · ${exerciseCount} hareket` : ''}</small></span><span className="session-xp">+{session.xp} XP</span></div>;
+  return <div className="session-row"><span className="session-icon">{icon[session.kind]}</span><span className="session-info"><b>{session.title}</b><small>{LABELS[session.kind]} · {shortDate(session.date)}{session.minutes ? ` · ${session.minutes} dk` : ''}{session.score ? ` · ${session.score}` : ''}{exerciseCount ? ` · ${exerciseCount} hareket` : ''}</small>{session.matchEvents?.length ? <ol className="session-event-timeline">{[...session.matchEvents].sort((a, b) => a.minute - b.minute).map((event) => <li key={event.id}><time>{event.minute}′</time><span>{MATCH_EVENT_LABELS[event.type]}{event.detail ? ` · ${event.detail}` : ''}</span></li>)}</ol> : null}{session.voiceNoteId && <VoiceNotePlayback id={session.voiceNoteId} />}{session.matchMediaIds?.length ? <MatchMediaGallery ids={session.matchMediaIds} /> : null}</span><span className="session-xp">+{session.xp} XP</span></div>;
+}
+
+function PerformanceTests({ records, onSave }: { records: SkillTestRecord[]; onSave: (record: Omit<SkillTestRecord, 'id' | 'date'>) => void }) {
+  const [testId, setTestId] = useState<(typeof SKILL_TEST_TEMPLATES)[number]['id']>(SKILL_TEST_TEMPLATES[0].id);
+  const [value, setValue] = useState('');
+  const test = SKILL_TEST_TEMPLATES.find((item) => item.id === testId) ?? SKILL_TEST_TEMPLATES[0];
+  const history = records.filter((record) => record.testId === test.id).sort((a, b) => a.date.localeCompare(b.date));
+  const best = history.reduce<SkillTestRecord | null>((selected, record) => !selected || (test.lowerIsBetter ? record.value < selected.value : record.value > selected.value) ? record : selected, null);
+  const add = () => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0 || numericValue > 100_000) return;
+    onSave({ testId: test.id, name: test.name, category: test.category, unit: test.unit, lowerIsBetter: test.lowerIsBetter, value: numericValue });
+    setValue('');
+  };
+  return <div className="test-workspace"><section className="card"><div className="section-head compact"><div><p className="eyebrow">PERFORMANS TESTLERİ</p><h2>Sonuç ekle</h2></div><span>📈</span></div><p className="field-help">Aynı testin geçmişini kıyasla. Süre testlerinde düşük, mesafe/yükseklik testlerinde yüksek değer kişisel en iyi olarak gösterilir.</p><label className="field-label">Test şablonu<select value={testId} onChange={(event) => setTestId(event.target.value as typeof testId)}>{SKILL_TEST_TEMPLATES.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.category}</option>)}</select></label><label className="field-label">Sonuç ({test.unit})<input aria-label={`Sonuç (${test.unit})`} type="number" min="0.01" max="100000" step="any" value={value} onChange={(event) => setValue(event.target.value)} placeholder={test.unit === 'sn' ? 'Örn. 3.42' : 'Sonucu gir'} /></label><button className="primary-button full-button" type="button" onClick={add} disabled={!value || !Number.isFinite(Number(value)) || Number(value) <= 0}>Bugünkü sonucu kaydet</button></section><section className="card test-history"><div className="section-head compact"><div><p className="eyebrow">{test.category.toUpperCase()} · TREND</p><h2>{test.name}</h2></div><span>🎯</span></div><div className="test-best"><span>Kişisel en iyi</span><b>{best ? `${numberFormat(best.value, 2)} ${test.unit}` : '—'}</b><small>{best ? shortDate(best.date) : 'Henüz sonuç yok'}</small></div>{history.length ? <ol className="test-history-list">{[...history].reverse().slice(0, 12).map((record) => <li key={record.id}><time>{shortDate(record.date)}</time><b>{numberFormat(record.value, 2)} {record.unit}</b>{record.id === best?.id && <span>En iyi</span>}</li>)}</ol> : <p className="empty-copy">İlk test sonucunu eklediğinde geçmiş burada birikir.</p>}</section><p className="analysis-disclaimer">Bu kayıtlar yalnızca senin girdiğin sonuçları gösterir. Test koşulları ve ölçüm yöntemi değişebileceğinden, farklı protokollerdeki sonuçlar doğrudan kıyaslanmamalıdır.</p></div>;
 }
 
 function StatCard({ icon, value, label }: { icon: string; value: string; label: string }) {

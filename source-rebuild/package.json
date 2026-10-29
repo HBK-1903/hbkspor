@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && npm run check:push-worker && vite build",
+    "check:push-worker": "tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --lib ES2022,DOM --strict --skipLibCheck push-worker/src/worker.ts push-worker/src/push-crypto.ts",
     "test": "vitest run",
     "preview": "vite preview"
   },
