@@ -43,3 +43,89 @@ h2 { font-size:19px; line-height:1.15; font-weight:800; }
 @keyframes rise { from { transform:translateY(20px); opacity:0; } to { transform:translateY(0); opacity:1; } }
 @media (min-width:700px) { body { background:#080d0a; }.app-shell,.welcome-screen { border-left:1px solid #18231b; border-right:1px solid #18231b; box-shadow:0 0 70px #0007; } }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; } }
+
+/* Exercise logging and muscle-load analysis */
+.segmented-control { display:grid; grid-template-columns:1fr 1fr; gap:5px; padding:5px; margin:0 0 14px; border:1px solid var(--line); border-radius:15px; background:#111914; }
+.segmented-control button { min-height:42px; border:0; border-radius:11px; background:transparent; color:var(--muted); font-size:12px; font-weight:800; }
+.segmented-control button.active { background:var(--green); color:#172111; }
+.exercise-logger { margin:15px 0; padding:13px; border:1px solid #405342; border-radius:16px; background:#0e1712; }
+.exercise-logger .field-label { margin:9px 0; }
+.exercise-input-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 10px; }
+.field-help { margin:7px 0; color:var(--muted); font-size:10px; line-height:1.55; }
+.exercise-entry-list,.movement-history { list-style:none; padding:0; margin:12px 0 0; }
+.exercise-entry-list li { display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid #ffffff12; }
+.exercise-entry-list li>div { min-width:0; flex:1; display:grid; gap:4px; }
+.exercise-entry-list b { font-size:12px; }
+.exercise-entry-list small { color:var(--muted); font-size:10px; line-height:1.45; }
+.remove-exercise { flex:none; width:40px; height:40px; border:1px solid #65413b; border-radius:12px; background:#3b211d; color:#ffb7a6; font-size:22px; }
+.session-modal { max-height:min(90vh, 900px); max-height:min(90dvh, 900px); overflow:auto; overscroll-behavior:contain; }
+.muscle-report-header { margin:3px 0 14px; }
+.muscle-report-header h2 { font-size:17px; }
+.muscle-load-card { padding-bottom:8px; }
+.muscle-list { display:grid; gap:16px; }
+.muscle-load-row { display:grid; gap:7px; }
+.muscle-load-row__top { display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; }
+.muscle-load-row__top span { color:var(--green); font-weight:800; white-space:nowrap; }
+.muscle-load-row small { color:var(--muted); font-size:10px; }
+.muscle-bar { height:8px; overflow:hidden; border-radius:999px; background:#29352d; }
+.muscle-bar i { display:block; height:100%; min-width:3px; border-radius:inherit; background:linear-gradient(90deg,var(--green2),var(--green)); }
+.empty-muscle { display:grid; gap:10px; }
+.movement-history { margin-top:0; }
+.movement-history li { padding:13px 0; border-top:1px solid #ffffff12; }
+.movement-history li:first-child { border-top:0; }
+.movement-history__top,.movement-history__foot { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+.movement-history__top b { font-size:12px; }
+.movement-history__top time,.movement-history p,.movement-history__foot { color:var(--muted); font-size:10px; line-height:1.5; }
+.movement-history p { margin-top:5px; }
+.movement-history__foot { flex-wrap:wrap; margin-top:7px; color:#d2e2cb; }
+.movement-history__foot span:last-child { color:var(--orange); }
+.analysis-disclaimer { margin:12px 3px 20px; color:#98a79d; font-size:10px; line-height:1.65; }
+@media (max-width:360px) { .exercise-input-grid { gap:0 7px; }.exercise-logger { padding:10px; }.movement-history__foot { display:grid; } }
+
+/* Detailed set entry, training visualizations and selectable muscle map */
+.period-picker { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin:0 0 14px; }
+.period-picker button { min-height:42px; border:1px solid var(--line); border-radius:12px; background:#141d18; color:var(--muted); font-size:11px; font-weight:800; }
+.period-picker button.active { border-color:var(--green); background:#b8f34b18; color:var(--green); }
+.pending-sets { display:grid; gap:8px; margin-top:12px; padding:11px; border:1px solid #314234; border-radius:13px; background:#152019; }
+.pending-sets>b { color:var(--green); font-size:11px; }
+.pending-set-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding-top:7px; border-top:1px solid #ffffff12; color:var(--muted); font-size:10px; }
+.pending-set-row .remove-exercise { width:36px; height:36px; }
+.muscle-load-row-button { width:100%; padding:8px; border:1px solid transparent; border-radius:12px; background:transparent; color:inherit; text-align:left; }
+.muscle-load-row-button:hover,.muscle-load-row-button.selected { border-color:#536c43; background:#b8f34b0c; }
+.body-map-wrap { display:grid; gap:13px; }
+.body-map-figures { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; max-width:330px; margin:0 auto; }
+.body-map-panel { display:grid; justify-items:center; gap:4px; padding:10px 7px 5px; border:1px solid #ffffff10; border-radius:16px; background:#101812; color:var(--muted); font-size:10px; }
+.body-map-panel svg { display:block; width:min(100%,140px); height:auto; }
+.body-base { fill:#222e26; stroke:#65746a; stroke-width:1.5; }
+.body-map-region { cursor:pointer; outline:none; }
+.body-map-region path,.body-map-region ellipse { fill:var(--region-fill); stroke:var(--region-stroke); stroke-width:1.5; transition:fill .18s ease,stroke .18s ease; }
+.body-map-region:hover path,.body-map-region:hover ellipse { stroke:#fff; stroke-width:2.5; }
+.body-map-region:focus-visible path,.body-map-region:focus-visible ellipse { stroke:#fff; stroke-width:3; }
+.body-map-legend { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.body-map-legend button { min-height:38px; display:flex; justify-content:space-between; align-items:center; gap:5px; padding:7px 9px; border:1px solid var(--line); border-radius:11px; background:#111914; color:var(--muted); font-size:10px; text-align:left; }
+.body-map-legend button b { color:var(--green); }
+.body-map-legend button.active { border-color:var(--green); color:var(--text); }
+.training-heatmap { overflow:hidden; }
+.heatmap-grid { display:grid; grid-template-columns:28px 1fr; gap:5px; align-items:center; }
+.heatmap-week-labels { display:grid; grid-template-columns:repeat(var(--week-count),minmax(8px,1fr)); gap:5px; text-align:center; }
+.heatmap-week-labels small,.heatmap-row>small { color:var(--muted); font-size:8px; text-align:center; }
+.heatmap-row { grid-column:1/-1; display:grid; grid-template-columns:28px repeat(var(--week-count),minmax(8px,1fr)); gap:5px; align-items:center; }
+.heat-cell { display:block; width:100%; aspect-ratio:1; min-width:8px; border-radius:3px; background:#202b24; }
+.heat-cell.level-1,.heatmap-key .level-1 { background:#54723a; }
+.heat-cell.level-2,.heatmap-key .level-2 { background:#83b544; }
+.heat-cell.level-3,.heatmap-key .level-3 { background:var(--green); }
+.heatmap-key { display:flex; align-items:center; justify-content:flex-end; gap:5px; margin-top:11px; color:var(--muted); font-size:9px; }
+.heatmap-key i { width:12px; height:12px; border-radius:3px; background:#202b24; }
+.exercise-progress .field-label { margin:8px 0 3px; }
+.progress-chart { display:block; width:100%; height:auto; margin:8px 0 0; overflow:visible; }
+.progress-chart line { stroke:#526157; stroke-width:1; }
+.progress-chart polyline { fill:none; stroke:var(--green); stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
+.progress-chart circle { fill:var(--green); stroke:#101812; stroke-width:2; }
+.progress-chart text { fill:var(--muted); font-size:9px; }
+.progress-values { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px 12px; padding:0; margin:9px 0 0; list-style:none; }
+.progress-values li { display:flex; justify-content:space-between; gap:5px; color:var(--muted); font-size:9px; }
+.progress-values b { color:var(--text); text-align:right; }
+.set-breakdown { margin-top:9px; padding:9px 10px; border-radius:10px; background:#101812; color:var(--muted); font-size:10px; }
+.set-breakdown summary { min-height:30px; display:flex; align-items:center; color:#d2e2cb; font-weight:700; cursor:pointer; }
+.set-breakdown p { padding:5px 0; border-top:1px solid #ffffff10; }
+@media (max-width:360px) { .heatmap-grid,.heatmap-row { gap:3px; }.heatmap-grid { grid-template-columns:24px 1fr; }.heatmap-row { grid-template-columns:24px repeat(var(--week-count),minmax(7px,1fr)); }.heat-cell { min-width:7px; }.progress-values { grid-template-columns:1fr; } }

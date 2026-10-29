@@ -1,10 +1,46 @@
 export type SessionKind = 'gym' | 'pitch' | 'match' | 'gps' | 'timer' | 'recovery' | 'rest';
 
+export type MuscleGroup =
+  | 'chest'
+  | 'back'
+  | 'shoulders'
+  | 'biceps'
+  | 'triceps'
+  | 'core'
+  | 'quadriceps'
+  | 'hamstrings'
+  | 'glutes'
+  | 'calves';
+
 export interface PlayerProfile {
   name: string;
   position: string;
   dominantFoot: 'Sağ' | 'Sol';
   createdAt: string;
+}
+
+export interface ExerciseSet {
+  id: string;
+  reps: number;
+  weightKg: number;
+  /** Self-reported effort (RPE), from 1 = easy to 10 = maximum. */
+  rpe: number;
+  restSeconds: number;
+}
+
+/** A muscle-map snapshot plus set-by-set performance for one movement. */
+export interface LoggedExercise {
+  id: string;
+  exerciseId: string;
+  name: string;
+  /** Summary fields retained for older local records and CSV compatibility. */
+  sets: number;
+  reps: number;
+  weightKg: number;
+  rpe: number;
+  setDetails?: ExerciseSet[];
+  primaryMuscles: MuscleGroup[];
+  secondaryMuscles: MuscleGroup[];
 }
 
 export interface TrainingSession {
@@ -16,10 +52,14 @@ export interface TrainingSession {
   date: string;
   note?: string;
   score?: string;
+  exercises?: LoggedExercise[];
 }
 
 export interface AppData {
   profile: PlayerProfile | null;
   sessions: TrainingSession[];
+  /** Legacy field retained so existing locally saved data still loads. */
   completedGoals: string[];
+  /** Daily check-offs, keyed by local YYYY-MM-DD. */
+  goalCompletions?: Record<string, string[]>;
 }
