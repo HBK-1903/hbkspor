@@ -85,8 +85,27 @@ export interface TrainingSession {
   exercises?: LoggedExercise[];
 }
 
+export interface GpsRoutePoint {
+  lat: number;
+  lon: number;
+  elevationM?: number;
+  time?: string;
+  speedKmh?: number;
+}
+
+export interface GpsActivity {
+  id: string;
+  fileName: string;
+  date: string;
+  distanceKm: number;
+  durationSeconds: number;
+  route: GpsRoutePoint[];
+}
+
 export interface AppData {
   profile: PlayerProfile | null;
+  /** Demo fixture is intentionally excluded from achievement/progress claims. */
+  demoMode?: boolean;
   sessions: TrainingSession[];
   /** Legacy field retained so existing locally saved data still loads. */
   completedGoals: string[];
@@ -94,4 +113,6 @@ export interface AppData {
   goalCompletions?: Record<string, string[]>;
   workoutTemplates?: WorkoutTemplate[];
   skillTests?: SkillTestRecord[];
+  /** User-imported GPX tracks remain separate from logged training sessions. */
+  gpsActivities?: GpsActivity[];
 }

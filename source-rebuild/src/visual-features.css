@@ -1,0 +1,97 @@
+/* Visual drill library, local GPS route maps and record-based milestones. */
+.segmented-control { display:flex; overflow-x:auto; overscroll-behavior-inline:contain; scrollbar-width:thin; }
+.segmented-control > button { flex:0 0 auto; min-width:70px; padding-inline:10px; }
+.visual-workspace { display:grid; gap:14px; padding-bottom:14px; }
+.visual-intro,.gps-hero,.progress-hero { position:relative; overflow:hidden; border:1px solid #34483a; border-radius:20px; background:linear-gradient(135deg,#1b2d20,#101914 65%,#222718); box-shadow:0 12px 28px #0003; }
+.visual-intro { display:flex; gap:13px; align-items:flex-start; padding:17px; }
+.visual-intro::after,.gps-hero::after,.progress-hero::after { content:""; position:absolute; width:145px; height:145px; right:-48px; top:-57px; border-radius:50%; background:radial-gradient(circle,#b8f34b25,transparent 70%); pointer-events:none; }
+.visual-intro__icon,.gps-hero__icon { flex:none; display:grid; place-items:center; width:44px; height:44px; border:1px solid #b8f34b44; border-radius:14px; background:#b8f34b14; color:#caff78; font-size:23px; }
+.visual-intro h2,.gps-hero h2,.progress-hero h2 { margin:2px 0 6px; font-size:19px; line-height:1.12; }
+.visual-intro p:not(.eyebrow),.gps-hero__top p:not(.eyebrow),.progress-hero__copy>p:not(.eyebrow) { margin:0; color:var(--muted); font-size:11px; line-height:1.55; }
+.drill-filters { display:flex; gap:7px; overflow-x:auto; padding:1px 0 5px; scrollbar-width:thin; }
+.drill-filters button { flex:none; min-height:36px; padding:0 12px; border:1px solid var(--line); border-radius:999px; background:#111914; color:var(--muted); font-size:10px; font-weight:800; white-space:nowrap; }
+.drill-filters button.active { border-color:#b8f34b; background:#b8f34b18; color:#d4ff89; }
+.drill-grid,.gps-activity-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.drill-card,.gps-activity-card { min-width:0; overflow:hidden; border:1px solid #2d3d31; border-radius:18px; background:linear-gradient(165deg,#19241d,#101713 78%); box-shadow:0 10px 25px #0002; }
+.drill-card__art { position:relative; padding:7px; background:radial-gradient(ellipse at 50% 10%,#4d713922,transparent 65%),#0d1812; }
+.drill-diagram { display:block; width:100%; height:auto; border-radius:14px; }
+.drill-duration { position:absolute; right:14px; top:14px; padding:5px 8px; border:1px solid #ffffff28; border-radius:99px; background:#09110edb; color:#e9f6de; font-size:9px; font-weight:850; backdrop-filter:blur(6px); }
+.drill-card__body { padding:11px 12px 13px; }
+.drill-meta { display:flex; justify-content:space-between; gap:5px; color:#9dcc70; font-size:8px; font-weight:900; letter-spacing:.04em; text-transform:uppercase; }
+.drill-meta span:last-child { color:#9ca99d; }
+.drill-card h3 { margin:6px 0 5px; color:#f1f6eb; font-size:14px; line-height:1.15; }
+.drill-card__body>p { min-height:48px; margin:0; color:#aab8ad; font-size:10px; line-height:1.45; }
+.drill-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:9px; }
+.drill-tags span { padding:4px 6px; border:1px solid #ffffff12; border-radius:6px; color:#c9d4c9; font-size:8px; }
+.drill-equipment { margin-top:9px; color:#edc96d; font-size:9px; font-weight:750; }
+.drill-cues { margin:8px 0; border-top:1px solid #ffffff12; color:#b9c8b8; font-size:9px; }
+.drill-cues summary { min-height:32px; display:flex; align-items:center; cursor:pointer; font-weight:800; }
+.drill-cues ul { margin:0 0 9px; padding-left:16px; line-height:1.6; }
+.drill-card .full-button { min-height:39px; font-size:10px; }
+.gps-hero { padding:16px; }
+.gps-hero__top { position:relative; z-index:1; display:flex; gap:12px; align-items:flex-start; }
+.gps-hero__metrics { display:flex; align-items:center; gap:13px; margin-top:15px; padding-top:13px; border-top:1px solid #ffffff16; }
+.gps-hero__metrics>span { display:grid; gap:3px; }
+.gps-hero__metrics>span b { color:#edffcf; font-size:16px; }
+.gps-hero__metrics>span small { color:var(--muted); font-size:8px; }
+.gps-hero__metrics .primary-button { margin-left:auto; min-height:40px; padding-inline:11px; font-size:10px; white-space:nowrap; }
+.gps-import-error { margin:0; padding:10px 12px; border:1px solid #81483e; border-radius:12px; background:#3a211d; color:#ffc0ae; font-size:11px; }
+.gps-empty { display:grid; justify-items:center; gap:7px; padding:24px 18px; text-align:center; }
+.gps-empty>span { font-size:35px; }
+.gps-empty h3 { margin:0; font-size:16px; }
+.gps-empty p { max-width:280px; margin:0 0 7px; color:var(--muted); font-size:11px; line-height:1.55; }
+.gps-activity-card { display:flex; flex-direction:column; }
+.route-visual { display:block; width:100%; aspect-ratio:16/9; background:#0d2119; }
+.route-visual--empty { display:grid; place-items:center; color:var(--muted); font-size:11px; }
+.gps-activity-card__body { padding:11px; }
+.gps-activity-card__title { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
+.gps-activity-card__title time { color:#9dcc70; font-size:8px; font-weight:850; letter-spacing:.08em; text-transform:uppercase; }
+.gps-activity-card__title h3 { max-width:180px; overflow:hidden; margin:4px 0 0; color:#edf5e9; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+.gps-activity-card__title .remove-exercise { width:32px; height:32px; font-size:18px; }
+.gps-activity-card__stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-top:11px; padding-top:10px; border-top:1px solid #ffffff13; }
+.gps-activity-card__stats span { display:grid; gap:3px; min-width:0; }
+.gps-activity-card__stats b { overflow:hidden; color:#e5f5d9; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.gps-activity-card__stats small { color:var(--muted); font-size:8px; }
+.gps-activity-card__body>p { margin:8px 0 0; color:#7f8f82; font-size:8px; line-height:1.4; }
+.progress-hero { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:17px; }
+.progress-hero__copy { position:relative; z-index:1; max-width:255px; }
+.progress-ring { position:relative; z-index:1; flex:none; width:92px; height:92px; display:grid; align-content:center; justify-items:center; gap:1px; border-radius:50%; background:conic-gradient(#b8f34b var(--progress),#ffffff15 0); }
+.progress-ring::before { content:""; position:absolute; inset:6px; border-radius:inherit; background:#142019; }
+.progress-ring strong,.progress-ring span { position:relative; z-index:1; }
+.progress-ring strong { color:#e8ffd0; font-size:24px; line-height:1; }
+.progress-ring strong small { color:#9ead9e; font-size:12px; }
+.progress-ring span { margin-top:4px; color:#aebbab; font-size:7px; font-weight:800; }
+.weekly-visual { overflow:hidden; }
+.weekly-bars { display:flex; height:150px; align-items:stretch; gap:8px; margin:14px 0 5px; }
+.weekly-bars__scale { display:flex; flex-direction:column; justify-content:space-between; padding:1px 0 31px; color:#819184; font-size:8px; }
+.weekly-bar-col { flex:1; display:grid; grid-template-rows:minmax(30px,1fr) 14px 14px; justify-items:center; gap:4px; min-width:0; }
+.weekly-bar-track { width:min(24px,70%); height:100%; display:flex; align-items:flex-end; overflow:hidden; border-radius:999px 999px 5px 5px; background:#29342b; }
+.weekly-bar-track i { display:block; width:100%; min-height:0; border-radius:999px 999px 4px 4px; background:linear-gradient(180deg,#d5ff87,#75b840); box-shadow:0 0 12px #b8f34b40; transition:height .3s ease; }
+.weekly-bar-col small { color:var(--muted); font-size:8px; }
+.weekly-bar-col b { color:#dbe6d7; font-size:8px; }
+.achievement-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.achievement-card { min-width:0; padding:12px; border:1px solid #334238; border-radius:16px; background:linear-gradient(150deg,#18231c,#101713); }
+.achievement-card.is-complete { border-color:#84994b; background:radial-gradient(circle at 90% 0%,#b8f34b1a,transparent 52%),linear-gradient(150deg,#1d2a1c,#121914); box-shadow:inset 0 1px 0 #d7ff8321; }
+.achievement-card__top { display:flex; align-items:center; justify-content:space-between; gap:4px; }
+.achievement-icon { display:grid; place-items:center; width:36px; height:36px; border:1px solid #ffffff14; border-radius:12px; background:#ffffff08; font-size:18px; }
+.achievement-status { color:#8e9c91; font-size:7px; font-weight:900; letter-spacing:.05em; text-align:right; }
+.achievement-card.is-complete .achievement-status { color:#c5f47e; }
+.achievement-card h3 { margin:10px 0 4px; color:#eaf3e6; font-size:12px; }
+.achievement-card p { min-height:38px; margin:0; color:#9eada0; font-size:9px; line-height:1.45; }
+.achievement-progress { height:6px; overflow:hidden; margin-top:10px; border-radius:99px; background:#2b382d; }
+.achievement-progress i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#79bb43,#d0fa7e); }
+.achievement-card__foot { display:flex; align-items:center; justify-content:space-between; gap:4px; margin-top:7px; color:#afbdad; font-size:8px; }
+.achievement-card__foot b { color:#d8ff8c; font-size:14px; }
+.progress-records>div:last-of-type { display:flex; flex-wrap:wrap; align-items:center; gap:5px; color:var(--muted); font-size:9px; }
+.progress-records>div:last-of-type b { color:#d7f3c1; font-size:14px; }
+.progress-records>div:last-of-type i { width:1px; height:15px; margin-inline:4px; background:#ffffff25; }
+.demo-data-note { margin:0; padding:10px 12px; border:1px solid #836733; border-radius:12px; background:#3a2d18; color:#f5daa0; font-size:10px; line-height:1.5; }
+.feature-shortcuts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.feature-shortcuts button { min-width:0; display:grid; justify-items:start; gap:5px; padding:11px 9px; border:1px solid #36443a; border-radius:14px; background:#141e18; color:var(--text); text-align:left; }
+.feature-shortcuts button>span { color:#c9fa78; font-size:18px; }
+.feature-shortcuts button b { font-size:9px; line-height:1.2; }
+.feature-shortcuts button small { color:var(--muted); font-size:8px; line-height:1.35; }
+.analysis-disclaimer { margin:0 3px 8px; color:#93a295; font-size:9px; line-height:1.55; }
+@media(max-width:540px) { .drill-grid,.gps-activity-grid { grid-template-columns:1fr; }.drill-card { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); }.drill-card__art { display:flex; align-items:center; }.drill-card__body>p { min-height:0; }.gps-hero__metrics { gap:9px; }.gps-hero__metrics>span b { font-size:13px; }.gps-hero__metrics .primary-button { padding-inline:8px; font-size:9px; }.progress-hero { padding:14px; }.progress-ring { width:82px; height:82px; }.feature-shortcuts { gap:6px; }.feature-shortcuts button { padding:9px 7px; } }
+@media(max-width:370px) { .drill-card { display:block; }.gps-hero__top { gap:8px; }.gps-hero__icon { width:38px; height:38px; }.gps-hero__metrics { flex-wrap:wrap; }.gps-hero__metrics .primary-button { margin-left:auto; }.achievement-grid { gap:7px; }.achievement-card { padding:10px; }.achievement-status { font-size:6px; } }
+@media(prefers-reduced-motion:reduce) { .weekly-bar-track i { transition:none; } }

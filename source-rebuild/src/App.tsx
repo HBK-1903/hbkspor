@@ -17,6 +17,9 @@ import {
   XP_REWARDS,
 } from './training';
 import type { AppData, ExerciseSet, LoggedExercise, MatchEvent, MatchEventType, MuscleGroup, SessionKind, SkillTestRecord, TrainingSession, WorkoutTemplate } from './types';
+import { DrillLibrary, GpsActivityLibrary, ProgressAchievements } from './visual-features';
+import type { Drill } from './drills';
+import type { GpsActivity } from './types';
 
 const GOALS = [
   { id: 'water', title: 'Günde en az 3 litre su iç', detail: 'Kramp önleme ve performans' },
@@ -69,7 +72,7 @@ const freshSetDraft = (): SetDraft => ({ reps: '10', weightKg: '0', rpe: '7', re
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadAppData());
   const [tab, setTab] = useState<'home' | 'calendar' | 'stats' | 'settings'>('home');
-  const [statsView, setStatsView] = useState<'overview' | 'muscles' | 'tests'>('overview');
+  const [statsView, setStatsView] = useState<'overview' | 'muscles' | 'tests' | 'drills' | 'gps' | 'achievements'>('overview');
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeKind, setActiveKind] = useState<SessionKind | null>(null);
   const [profileName, setProfileName] = useState('');
@@ -126,16 +129,20 @@ export default function App() {
   const createProfile = () => {
     const trimmed = profileName.trim();
     if (!trimmed) return;
-    setData((current) => ({ ...current, profile: { name: trimmed, position, dominantFoot: foot, createdAt: today } }));
+    setData((current) => ({ ...current, demoMode: false, profile: { name: trimmed, position, dominantFoot: foot, createdAt: today } }));
     setToast(`Hoş geldin, ${trimmed}!`);
   };
 
   const startDemo = () => {
     setData({
       profile: { name: 'Yıldız', position: 'Kanat', dominantFoot: 'Sağ', createdAt: today },
+      demoMode: true,
       sessions: [{ id: crypto.randomUUID(), kind: 'pitch', title: 'İlk saha çalışmam', minutes: 35, xp: XP_REWARDS.pitch, date: today, note: 'Demo antrenmanı' }],
       completedGoals: [],
       goalCompletions: {},
+      workoutTemplates: [],
+      skillTests: [],
+      gpsActivities: [],
     });
     setToast('Demo profili hazır. Veriler bu cihazda kalır.');
   };
@@ -255,6 +262,25 @@ export default function App() {
     setToast(`${test.name} sonucu kaydedildi.`);
   };
 
+  const importGpsActivity = (activity: GpsActivity) => {
+    setData((current) => ({ ...current, gpsActivities: [activity, ...(current.gpsActivities ?? [])] }));
+    setToast(`Rota eklendi · ${numberFormat(activity.distanceKm, 2)} km. Antrenman sayısına eklenmedi.`);
+  };
+
+  const deleteGpsActivity = (id: string) => {
+    if (!window.confirm('Bu GPX rotasını bu cihazdan silmek istiyor musun?')) return;
+    setData((current) => ({ ...current, gpsActivities: (current.gpsActivities ?? []).filter((activity) => activity.id !== id) }));
+    setToast('GPX rotası silindi.');
+  };
+
+  const startDrill = (drill: Drill) => {
+    openAction('pitch');
+    setTitle(drill.name);
+    setMinutes(String(drill.duration));
+    setNote(`${drill.description} İpuçları: ${drill.cues.join('; ')}.`);
+    setToast(`${drill.name} saha kaydına hazırlandı.`);
+  };
+
   const saveSession = () => {
     if (!activeKind) return;
     const duration = Number(minutes);
@@ -298,7 +324,7 @@ export default function App() {
 
   const resetProfile = () => {
     if (!window.confirm('Bu cihazdaki HBK Spor profilini ve kayıtlarını sıfırlamak istiyor musun?')) return;
-    setData({ profile: null, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [] });
+    setData({ profile: null, demoMode: false, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [] });
     setToast('Profil sıfırlandı.');
   };
 
@@ -335,19 +361,27 @@ export default function App() {
     <>
       <header className="topbar"><div><p className="eyebrow">İSTATİSTİK</p><h1>Gelişim özeti</h1></div><span className="level-badge">Lv.{level}</span></header>
       <div className="segmented-control" role="tablist" aria-label="İstatistik görünümü">
-        <button role="tab" aria-selected={statsView === 'overview'} className={statsView === 'overview' ? 'active' : ''} onClick={() => setStatsView('overview')}>Genel bakış</button>
-        <button role="tab" aria-selected={statsView === 'muscles'} className={statsView === 'muscles' ? 'active' : ''} onClick={() => setStatsView('muscles')}>Kas yükü</button>
-        <button role="tab" aria-selected={statsView === 'tests'} className={statsView === 'tests' ? 'active' : ''} onClick={() => setStatsView('tests')}>Testler</button>
+        {([
+          ['overview', 'Genel'], ['muscles', 'Kas yükü'], ['tests', 'Testler'],
+          ['drills', 'Drill'], ['gps', 'GPS'], ['achievements', 'Rozetler'],
+        ] as const).map(([view, label]) => <button key={view} role="tab" aria-selected={statsView === view} className={statsView === view ? 'active' : ''} onClick={() => setStatsView(view)}>{label}</button>)}
       </div>
       {statsView === 'muscles' ? (
         <MuscleAnalysis sessions={data.sessions} weekStart={weekStart} onAddGym={() => openAction('gym')} />
       ) : statsView === 'tests' ? (
         <PerformanceTests records={data.skillTests ?? []} onSave={saveSkillTest} />
+      ) : statsView === 'drills' ? (
+        <DrillLibrary onUse={startDrill} />
+      ) : statsView === 'gps' ? (
+        <GpsActivityLibrary activities={data.gpsActivities ?? []} onImport={importGpsActivity} onDelete={deleteGpsActivity} />
+      ) : statsView === 'achievements' ? (
+        <ProgressAchievements data={data} weekStart={weekStart} />
       ) : (
         <>
           <div className="stats-grid"><StatCard icon="⚡" value={String(totalXp)} label="Toplam XP" /><StatCard icon="📅" value={String(data.sessions.length)} label="Toplam seans" /><StatCard icon="🔥" value={String(streak)} label="Seri günü" /><StatCard icon="⏱️" value={`${data.sessions.reduce((sum, session) => sum + session.minutes, 0)}′`} label="Toplam süre" /></div>
           <section className="card"><p className="eyebrow">ÇALIŞMA DAĞILIMI</p><h2>Seans türleri</h2>{ACTIONS.map((action) => { const count = data.sessions.filter((session) => session.kind === action.kind).length; return <div key={action.kind} className="bar-row"><span>{action.icon} {action.label.replace('+ ', '')}</span><div className="bar"><i style={{ width: `${data.sessions.length ? Math.min(100, (count / data.sessions.length) * 100) : 0}%` }} /></div><b>{count}</b></div>; })}</section>
           <section className="card"><div className="section-head compact"><div><p className="eyebrow">KUVVET DETAYI</p><h2>Kas gruplarını incele</h2></div><span>💪</span></div><p className="empty-copy">Hareket, set, tekrar, ağırlık ve algılanan efor bilgilerini kaydedip haftalık tahmini kas yükünü gör.</p><button className="secondary-button full-button" onClick={() => setStatsView('muscles')}>Kas yükü raporunu aç</button></section>
+          <div className="feature-shortcuts"><button onClick={() => setStatsView('drills')}><span>⚽</span><b>Görselli drill’ler</b><small>Saha çizimleriyle çalışma seç</small></button><button onClick={() => setStatsView('gps')}><span>⌁</span><b>GPS rotaları</b><small>GPX içe aktar ve haritada gör</small></button><button onClick={() => setStatsView('achievements')}><span>✦</span><b>İlerleme & rozetler</b><small>Kayıtlarından gelen kilometre taşları</small></button></div>
         </>
       )}
     </>
