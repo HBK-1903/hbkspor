@@ -4,7 +4,7 @@
 .notification-permission>small,.notification-note { color:#a8b7aa; font-size:9px; line-height:1.55; }
 .notification-state { display:flex; align-items:center; gap:8px; color:#daf5c8; font-size:11px; font-weight:800; }
 .notification-state i { width:8px; height:8px; border-radius:50%; background:#b8f34b; box-shadow:0 0 10px #b8f34b88; }
-.notification-state .text-button { margin-left:auto; }
+.notification-state .text-button:first-of-type { margin-left:auto; }.notification-state .text-button:disabled { opacity:.45; cursor:not-allowed; }
 .notification-option { display:flex; align-items:flex-start; gap:10px; padding:11px; border:1px solid #354638; border-radius:12px; background:#121b15; }
 .notification-option input,.report-checks input { accent-color:#b8f34b; }
 .notification-option input { margin-top:2px; }

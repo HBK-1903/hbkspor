@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { addLocalDays, currentWeekStart, formatDay, localDayKey } from './dates';
 import type { AnalyticsData, GpsActivity, LegacyMatch, LegacyPlan, LegacyWorkout } from './types';
+import { gpsDistanceAtProgress, gpsRouteSegmentAtProgress, projectGpsRoute, projectGpsRoutes, validGpsRoute } from './gps-map';
 import './extended-analytics.css';
 
 export type AnalyticsSection = 'overview' | 'muscles' | 'movements' | 'matches' | 'gps' | 'recovery' | 'tests' | 'records';
@@ -248,18 +249,43 @@ function MatchCard({ match }: { match: LegacyMatch }) {
   return <article className="match-card"><div className={`match-result ${result === 'Galibiyet' ? 'win' : result === 'Mağlubiyet' ? 'loss' : ''}`}><strong>{ours ?? '–'} : {theirs ?? '–'}</strong><small>{result}</small></div><div className="match-main"><span>{formatDay(match.date)} · {match.isHome ? 'İç saha' : 'Deplasman'}</span><h3>{match.opponent || 'Rakip belirtilmemiş'}</h3><p>{validNumber(match.minutesPlayed) ?? 0} dk · {validNumber(match.goals) ?? 0} gol · {validNumber(match.assists) ?? 0} asist{match.isMvp ? ' · ⭐ MVP' : ''}</p>{(yellow || red) && <div className="match-events">{yellow && <span>🟨 Sarı kart</span>}{red && <span>🟥 Kırmızı kart</span>}</div>}{moment && <p className="match-highlight"><strong>Maç anı:</strong> {moment}</p>}{learned && <p className="match-highlight"><strong>Not:</strong> {learned}</p>}{!moment && !learned && notes && <p className="match-highlight">{notes}</p>}</div>{validNumber(match.rating) !== undefined && <div className="match-rating"><strong>{formatNumber(match.rating!, 1)}</strong><small>/ 10</small></div>}</article>;
 }
 
-function RouteMap({ activity }: { activity: GpsActivity }) {
-  const points = activity.route;
-  if (points.length < 2) return <div className="route-map route-map--empty">Rota verisi yok</div>;
-  const latitudes = points.map((point) => point.lat);
-  const longitudes = points.map((point) => point.lon);
-  const minLat = Math.min(...latitudes); const maxLat = Math.max(...latitudes);
-  const minLon = Math.min(...longitudes); const maxLon = Math.max(...longitudes);
-  const latSpan = Math.max(maxLat - minLat, 0.00001); const lonSpan = Math.max(maxLon - minLon, 0.00001);
-  const cosLat = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
-  const width = Math.max(lonSpan * Math.max(0.15, cosLat), 0.00001);
-  const route = points.map((point) => `${8 + ((point.lon - minLon) * Math.max(0.15, cosLat) / width) * 84},${92 - ((point.lat - minLat) / latSpan) * 84}`).join(' ');
-  return <svg className="route-map" viewBox="0 0 100 100" role="img" aria-label={`${activity.distanceKm.toFixed(2)} kilometrelik GPS rotası`}><defs><pattern id={`grid-${activity.id}`} width="8" height="8" patternUnits="userSpaceOnUse"><path d="M 8 0 L 0 0 0 8" fill="none" stroke="rgba(255,255,255,.05)" strokeWidth=".4" /></pattern></defs><rect width="100" height="100" fill={`url(#grid-${activity.id})`} /><polyline points={route} fill="none" stroke="#fb923c" strokeWidth="2.7" strokeLinecap="round" strokeLinejoin="round" /><circle cx={route.split(' ')[0].split(',')[0]} cy={route.split(' ')[0].split(',')[1]} r="3.2" fill="#86efac" stroke="#0f172a" strokeWidth="1.2" /><circle cx={route.split(' ')[route.split(' ').length - 1]?.split(',')[0]} cy={route.split(' ')[route.split(' ').length - 1]?.split(',')[1]} r="3.2" fill="#fb7185" stroke="#0f172a" strokeWidth="1.2" /></svg>;
+const LazyGpsLeafletMap = lazy(() => import('./GpsLeafletMap'));
+
+function RouteMap({ activity, progress }: { activity: GpsActivity; progress: number }) {
+  const gridId = `gps-grid-${useId().replace(/:/g, '')}`;
+  const points = useMemo(() => validGpsRoute(activity.route), [activity.route]);
+  const projection = useMemo(() => projectGpsRoute(points), [points]);
+  const [mapEnabled, setMapEnabled] = useState(false);
+  if (!projection) return <div className="route-map route-map--empty">Harita için geçerli rota verisi yok</div>;
+  const segment = gpsRouteSegmentAtProgress(points, progress);
+  const start = segment ? projection.points[segment.index] : projection.start;
+  const finish = segment ? projection.points[segment.index + 1] : projection.finish;
+  const marker = segment ? [start[0] + (finish[0] - start[0]) * segment.progress, start[1] + (finish[1] - start[1]) * segment.progress] : projection.start;
+  const route = projection.points.map(([x, y]) => `${x},${y}`).join(' ');
+  return <div className="route-map-shell">
+    {mapEnabled ? <>
+      <Suspense fallback={<div className="route-map route-map--loading" role="status">Harita bileşeni yükleniyor…</div>}>
+        <LazyGpsLeafletMap points={points} progress={progress} activityName={activity.fileName || 'GPS aktivitesi'} />
+      </Suspense>
+      <button type="button" className="route-map-consent route-map-consent--close" onClick={() => setMapEnabled(false)}>Haritayı kapat</button>
+      <p className="route-map-privacy">OpenStreetMap altlık sağlayıcısı, görünür alanın harita karoları için yaklaşık konum isteklerini alır. GPS dosyası ve rota çizgisi tarayıcıdan gönderilmez.</p>
+    </> : <>
+      <svg className="route-map" viewBox="0 0 120 100" role="img" aria-label={`${activity.distanceKm.toFixed(2)} kilometrelik yerel GPS rota önizlemesi`}>
+        <defs><pattern id={gridId} width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,.06)" strokeWidth=".45" /></pattern></defs>
+        <rect width="120" height="100" fill={`url(#${gridId})`} />
+        <path d="M 4 22 C 25 14, 31 39, 52 31 S 80 16, 116 27 M 2 76 C 23 63, 43 83, 67 69 S 92 81, 119 59" fill="none" stroke="#294050" strokeWidth="1.3" strokeDasharray="2 3" />
+        <polyline points={route} fill="none" stroke="#fb923c" strokeWidth="2.7" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={projection.start[0]} cy={projection.start[1]} r="3.2" fill="#86efac" stroke="#0f172a" strokeWidth="1.2"><title>Başlangıç</title></circle>
+        <circle cx={projection.finish[0]} cy={projection.finish[1]} r="3.2" fill="#fb7185" stroke="#0f172a" strokeWidth="1.2"><title>Bitiş</title></circle>
+        <circle cx={marker[0]} cy={marker[1]} r="4.1" fill="#38bdf8" stroke="#0f172a" strokeWidth="1.4"><title>Oynatım konumu</title></circle>
+      </svg>
+      <div className="route-map-optin">
+        <span>Yerel rota önizlemesi</span>
+        <button type="button" className="route-map-consent" onClick={() => setMapEnabled(true)} aria-label="İnteraktif OpenStreetMap haritasını yükle">Harita altlığını aç</button>
+      </div>
+      <p className="route-map-privacy">Harita altlığı isteğe bağlıdır; açınca OpenStreetMap, gösterilen bölgenin yaklaşık konumunu karo isteklerinden görebilir. GPS dosyan cihazında kalır.</p>
+    </>}
+  </div>;
 }
 
 type GpsChartMetric = 'pace' | 'speedKmh' | 'heartRate' | 'elevationM' | 'cadence' | 'accuracyM';
@@ -286,12 +312,45 @@ function GpsSection({ data, weeks, setWeeks, onImport, onDelete }: { data: Analy
     <section className="gps-import-card"><div><span className="gps-import-card__icon">⌁</span><div><strong>Strava / cihaz GPS dosyası içe aktar</strong><p>GPX, TCX ve FIT dosyalarını cihazından ekle. Nabız, kadans, yükseklik ve rota noktalarının zamanı dosyada bulunduğu ölçüde analiz edilir.</p></div></div><button type="button" className="gps-import-button" onClick={() => input.current?.click()}>GPS dosyası seç</button><input ref={input} type="file" accept=".gpx,.tcx,.fit,application/gpx+xml,application/xml,text/xml,application/octet-stream" hidden onChange={handleFile} /></section>
     <div className="extended-grid extended-grid--stats gps-summary"><StatCard label="Toplam mesafe" value={`${formatNumber(distance, 2)} km`} detail={`${activities.length} aktivite · seçili dönemde`} accent /><StatCard label="Hareket süresi" value={formatDuration(moving)} detail="GPX/TCX yaklaşık; FIT cihaz özeti" /><StatCard label="Ortalama hareket temposu" value={`${formatPace(pace)} /km`} detail="mesafe ÷ toplam hareket süresi" /><StatCard label="Tırmanış" value={ascentActivities.length ? `${formatNumber(totalAscent)} m` : '—'} detail={ascentActivities.length ? `${ascentActivities.length} ölçümlü aktivitede` : 'yükseklik verisi yok'} /><StatCard label="Ortalama nabız" value={avgHr ? `${avgHr} bpm` : '—'} detail={`${hrActivities.length} nabız verili aktivite`} /></div>
     <GpsWeeklyDistance activities={activities} start={start} weeks={weeks} />
+    {activities.length > 1 && <GpsActivityComparison activities={activities} />}
     {activities.length ? <><div className="gps-list-toolbar"><div><strong>{activities.length} aktivite</strong><span>{start} — {end}</span></div><label>Sırala<select aria-label="GPS aktivitelerini sırala" value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}><option value="recent">En yeni</option><option value="distance">En uzun mesafe</option><option value="pace">En hızlı tempo</option></select></label></div><div className="gps-activity-list">{sorted.map((activity) => <GpsActivityCard key={activity.id} activity={activity} onDelete={onDelete} />)}</div></> : <EmptyState title="GPS aktivitesi bulunamadı" detail="Uygulamadaki GPS koşuları burada görünür. Yeni kayıt eklemek için GPX, TCX veya FIT dosyası aktarabilirsin." />}
     <section className="extended-card gps-howto"><div className="extended-card__heading"><div><p className="extended-kicker">DOSYA VE ÖLÇÜM NOTLARI</p><h3>GPS verileri nasıl yorumlanıyor?</h3></div><span>Gizlilik öncelikli</span></div><ol><li>GPX/TCX rota ve zaman noktalarından mesafe, hareket süresi, hız/tempo, 1 km turları ve varsa irtifa/nabız/kadans hesaplanır. FIT’te varsa cihazın oturum özeti kullanılır.</li><li>Detay grafikler yalnızca dosyada bulunan örnekleri gösterir; eksik sensör verisi tahmin edilmez. Rota, grafikte en fazla 600 örnek noktayla saklanır.</li><li>Ham GPS dosyası sunucuya gönderilmez. İçe aktarılan kayıt bu cihazdaki tarayıcı depolamasında kalır; karttan dışa aktarabilir veya silebilirsin.</li></ol><p className="extended-note">GPS örnekleme aralığı, duraklama algısı ve cihazın filtreleri ölçümleri etkiler. Hız bölgeleri kişisel eşik olmadan sınıflandırılmaz. Bu sürüm Strava OAuth/API otomatik senkronizasyonu yapmaz.</p></section>
   </div>;
 }
 
-function GpsWeeklyDistance({ activities, start, weeks }: { activities: GpsActivity[]; start: string; weeks: AnalyticsRange }) {
+function GpsActivityComparison({ activities }: { activities: GpsActivity[] }) {
+  const [selectedIds, setSelectedIds] = useState<[string, string]>(['', '']);
+  const firstId = activities.some((activity) => activity.id === selectedIds[0]) ? selectedIds[0] : activities[0]?.id ?? '';
+  const secondId = activities.some((activity) => activity.id === selectedIds[1] && activity.id !== firstId)
+    ? selectedIds[1]
+    : activities.find((activity) => activity.id !== firstId)?.id ?? '';
+  const first = activities.find((activity) => activity.id === firstId);
+  const second = activities.find((activity) => activity.id === secondId);
+  const setSelection = (which: 0 | 1, value: string) => setSelectedIds((current) => {
+    const next: [string, string] = [...current];
+    next[which] = value;
+    if (next[0] === next[1]) next[1 - which as 0 | 1] = activities.find((activity) => activity.id !== value)?.id ?? '';
+    return next;
+  });
+  const projectedRoutes = first && second ? projectGpsRoutes([first.route, second.route]) : null;
+  const routes = projectedRoutes?.length === 2 ? projectedRoutes : null;
+  const metricRows = first && second ? [
+    { label: 'Mesafe', a: first.distanceKm, b: second.distanceKm, unit: ' km', digits: 2 },
+    { label: 'Hareket süresi', a: first.movingSeconds, b: second.movingSeconds, unit: '', duration: true },
+    { label: 'Ortalama tempo', a: first.distanceKm ? first.movingSeconds / first.distanceKm : undefined, b: second.distanceKm ? second.movingSeconds / second.distanceKm : undefined, unit: ' dk/km', pace: true },
+    { label: 'Tırmanış', a: first.elevationGainM, b: second.elevationGainM, unit: ' m', digits: 0 },
+    { label: 'Ortalama nabız', a: first.avgHeartRate, b: second.avgHeartRate, unit: ' bpm', digits: 0 },
+    { label: 'Ortalama hız', a: first.avgSpeedKmh, b: second.avgSpeedKmh, unit: ' km/sa', digits: 1 },
+  ] : [];
+  const value = (item: typeof metricRows[number], number?: number) => number === undefined ? '—' : item.duration ? formatDuration(number) : item.pace ? `${formatPace(number)}${item.unit}` : `${formatNumber(number, item.digits ?? 1)}${item.unit}`;
+  return <section className="extended-card gps-compare"><div className="extended-card__heading"><div><p className="extended-kicker">GPS · KARŞILAŞTIRMA</p><h3>İki aktiviteyi karşılaştır</h3></div><span>Yalnızca bu cihazda</span></div>
+    <div className="gps-compare__selectors"><label>Aktivite A<select aria-label="Karşılaştırma aktivitesi A" value={firstId} onChange={(event) => setSelection(0, event.target.value)}>{activities.map((activity) => <option key={activity.id} value={activity.id}>{formatDay(activity.date)} · {activity.fileName || 'GPS aktivitesi'}</option>)}</select></label><label>Aktivite B<select aria-label="Karşılaştırma aktivitesi B" value={secondId} onChange={(event) => setSelection(1, event.target.value)}>{activities.filter((activity) => activity.id !== firstId).map((activity) => <option key={activity.id} value={activity.id}>{formatDay(activity.date)} · {activity.fileName || 'GPS aktivitesi'}</option>)}</select></label></div>
+    {first && second && <div className="gps-compare__content">{routes ? <svg className="gps-compare__map" viewBox="0 0 120 100" role="img" aria-label="İki GPS aktivitesinin yerel rota üst üste görünümü"><path d={routes[0].points.map(([x, y], index) => `${index ? 'L' : 'M'}${x},${y}`).join(' ')} fill="none" stroke="#38bdf8" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/><path d={routes[1].points.map(([x, y], index) => `${index ? 'L' : 'M'}${x},${y}`).join(' ')} fill="none" stroke="#fb923c" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/><circle cx={routes[0].start[0]} cy={routes[0].start[1]} r="2.6" fill="#7dd3fc"/><circle cx={routes[1].start[0]} cy={routes[1].start[1]} r="2.6" fill="#fdba74"/></svg> : <div className="gps-compare__map gps-compare__map--empty">Her iki aktivitede de üst üste çizilecek yeterli rota noktası yok.</div>}<div className="gps-compare__legend"><span><i className="gps-compare__swatch gps-compare__swatch--a" />A · {first.fileName || formatDay(first.date)}</span><span><i className="gps-compare__swatch gps-compare__swatch--b" />B · {second.fileName || formatDay(second.date)}</span></div><div className="gps-compare__table-wrap"><table className="gps-compare__table"><thead><tr><th>Ölçüm</th><th>A</th><th>B</th><th>Fark (B−A)</th></tr></thead><tbody>{metricRows.map((item) => { const difference = item.a !== undefined && item.b !== undefined ? item.b - item.a : undefined; return <tr key={item.label}><th>{item.label}</th><td>{value(item, item.a)}</td><td>{value(item, item.b)}</td><td>{difference === undefined ? '—' : item.duration ? `${difference >= 0 ? '+' : '−'}${formatDuration(Math.abs(difference))}` : item.pace ? `${difference > 0 ? '+' : difference < 0 ? '−' : ''}${formatPace(Math.abs(difference))}` : `${difference > 0 ? '+' : difference < 0 ? '−' : ''}${formatNumber(Math.abs(difference), item.digits ?? 1)}${item.unit}`}</td></tr>; })}</tbody></table></div></div>}
+    <p className="extended-note">Rota çizgileri aynı yerel ölçekte üst üste gösterilir; GPS koordinatları dış servise gönderilmez. Harita altlığı kullanılmadığı için bu karşılaştırma için ağ isteği yapılmaz. GPS sapması, hava ve parkur farkları karşılaştırmayı etkileyebilir.</p>
+  </section>;
+}
+
+function GpsWeeklyDistance({ activities, start, weeks }: { activities: GpsActivity[]; start: string; weeks: number }) {
   const buckets = Array.from({ length: weeks }, (_, index) => {
     const weekStart = addLocalDays(start, index * 7);
     const weekEnd = addLocalDays(weekStart, 6);
@@ -326,7 +385,7 @@ function getGpsSeries(activity: GpsActivity, metric: GpsChartMetric) {
   });
 }
 
-function GpsTelemetryChart({ activity }: { activity: GpsActivity }) {
+function GpsTelemetryChart({ activity, progress }: { activity: GpsActivity; progress: number }) {
   const available: Array<{ key: GpsChartMetric; label: string; unit: string }> = [
     ...(activity.route.some((point) => point.time && point.distanceKm !== undefined) ? [{ key: 'pace' as const, label: 'Tempo', unit: 'dk/km' }] : []),
     ...(activity.route.some((point) => point.speedKmh !== undefined) ? [{ key: 'speedKmh' as const, label: 'Hız', unit: 'km/sa' }] : []),
@@ -343,9 +402,17 @@ function GpsTelemetryChart({ activity }: { activity: GpsActivity }) {
   const values = rows.map((row) => row.y);
   const min = Math.min(...values); const max = Math.max(...values);
   const range = Math.max(max - min, Math.abs(max) * 0.04, 1);
-  const points = rows.map((row, index) => `${36 + (index / (rows.length - 1)) * 548},${136 - ((row.y - (min - range * .08)) / (range * 1.16)) * 112}`).join(' ');
+  const xMin = Math.min(...rows.map((row) => row.x)); const xMax = Math.max(...rows.map((row) => row.x));
+  const xRange = Math.max(xMax - xMin, 1e-9);
+  const plotX = (value: number) => 36 + ((value - xMin) / xRange) * 548;
+  const plotY = (value: number) => 136 - ((value - (min - range * .08)) / (range * 1.16)) * 112;
+  const points = rows.map((row) => `${plotX(row.x)},${plotY(row.y)}`).join(' ');
   const display = (value: number) => metric.key === 'pace' ? formatPace(value) : formatNumber(value, metric.key === 'elevationM' ? 0 : 1);
-  return <div className="gps-telemetry"><div className="gps-chart-tabs" role="tablist" aria-label="GPS grafik ölçümü">{available.map((item) => <button type="button" key={item.key} role="tab" aria-selected={metric.key === item.key} onClick={() => setSelected(item.key)}>{item.label}</button>)}</div><div className="gps-chart-meta"><span>{metric.label} · {metric.unit}</span><strong>{display(min)} — {display(max)}</strong></div><svg viewBox="0 0 600 165" role="img" aria-label={`${metric.label} grafiği; yatay eksen aktivite mesafesi`}>{[30, 82, 134].map((y) => <line key={y} x1="36" x2="584" y1={y} y2={y} className="gps-chart-grid" />)}<polyline points={points} className="gps-chart-line" /><text x="36" y="157">0 km</text><text x="584" y="157" textAnchor="end">{formatNumber(activity.distanceKm, 2)} km</text></svg></div>;
+  const routeHasDistance = activity.route.every((point) => typeof point.distanceKm === 'number');
+  const playbackX = routeHasDistance ? gpsDistanceAtProgress(activity.route, progress, activity.distanceKm) : xMin + xRange * progress;
+  const cursorX = plotX(Math.max(xMin, Math.min(xMax, playbackX)));
+  const currentValue = rows.reduce((closest, row) => Math.abs(row.x - playbackX) < Math.abs(closest.x - playbackX) ? row : closest, rows[0]);
+  return <div className="gps-telemetry"><div className="gps-chart-tabs" role="tablist" aria-label="GPS grafik ölçümü">{available.map((item) => <button type="button" key={item.key} role="tab" aria-selected={metric.key === item.key} onClick={() => setSelected(item.key)}>{item.label}</button>)}</div><div className="gps-chart-meta"><span>{metric.label} · {metric.unit}</span><strong>{display(min)} — {display(max)}</strong><span className="gps-chart-current">Oynatımda: {display(currentValue.y)}</span></div><svg viewBox="0 0 600 165" role="img" aria-label={`${metric.label} grafiği; oynatım imleci rota konumuyla eşleşir`}>{[30, 82, 134].map((y) => <line key={y} x1="36" x2="584" y1={y} y2={y} className="gps-chart-grid" />)}<polyline points={points} className="gps-chart-line" /><line x1={cursorX} x2={cursorX} y1="22" y2="140" className="gps-chart-cursor" /><circle cx={cursorX} cy={plotY(currentValue.y)} r="4.2" className="gps-chart-cursor-point"><title>Oynatım konumu · {display(currentValue.y)} {metric.unit}</title></circle><text x="36" y="157">0 km</text><text x="584" y="157" textAnchor="end">{formatNumber(activity.distanceKm, 2)} km</text></svg></div>;
 }
 
 function downloadGpsGpx(activity: GpsActivity) {
@@ -359,11 +426,33 @@ function downloadGpsGpx(activity: GpsActivity) {
 }
 
 function GpsActivityCard({ activity, onDelete }: { activity: GpsActivity; onDelete: (id: string) => void }) {
+  const [progress, setProgress] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const playbackProgress = useRef(0);
+  const setPlaybackProgress = (value: number) => { const bounded = Math.max(0, Math.min(1, value)); playbackProgress.current = bounded; setProgress(bounded); };
+  useEffect(() => {
+    if (!playing) return;
+    const from = playbackProgress.current >= 1 ? 0 : playbackProgress.current;
+    if (playbackProgress.current >= 1) setPlaybackProgress(0);
+    const start = performance.now();
+    const durationMs = Math.max(1200, 10_000 * (1 - from));
+    let frame = 0;
+    const tick = (now: number) => {
+      const next = Math.min(1, from + (now - start) / durationMs * (1 - from));
+      setPlaybackProgress(next);
+      if (next >= 1) setPlaying(false);
+      else frame = window.requestAnimationFrame(tick);
+    };
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [playing]);
   const pace = activity.movingSeconds && activity.distanceKm ? activity.movingSeconds / activity.distanceKm : 0;
   const stoppedSeconds = Math.max(0, activity.pausedSeconds ?? activity.elapsedSeconds - activity.movingSeconds);
   const qualityLabel = activity.quality?.grade === 'good' ? 'İyi' : activity.quality?.grade === 'fair' ? 'Orta' : activity.quality?.grade === 'poor' ? 'Zayıf' : undefined;
-  return <article className="gps-activity-card"><RouteMap activity={activity} /><div className="gps-activity-card__content"><div className="gps-activity-card__top"><div><span>{formatDay(activity.date)} · {activity.source === 'app' ? 'Uygulama GPS’i' : `${activity.source.toUpperCase()} içe aktarıldı`}</span><h3>{activity.fileName || 'GPS aktivitesi'}</h3></div><div className="gps-card-actions">{activity.route.length > 1 && <button type="button" className="gps-export" onClick={() => downloadGpsGpx(activity)} aria-label="Rota GPX olarak indir">GPX indir</button>}{activity.source !== 'app' && <button type="button" className="delete-gps" onClick={() => onDelete(activity.id)} aria-label="İçe aktarılan GPS kaydını sil">Sil</button>}</div></div><div className="gps-metrics"><span><strong>{formatNumber(activity.distanceKm, 2)}</strong><small>km mesafe</small></span><span><strong>{formatDuration(activity.elapsedSeconds)}</strong><small>toplam süre</small></span><span><strong>{formatPace(pace)}</strong><small>dk/km hareket temposu</small></span>{activity.elevationGainM !== undefined && <span><strong>{activity.elevationGainM}</strong><small>m tırmanış</small></span>}{activity.avgHeartRate !== undefined && <span><strong>{activity.avgHeartRate}</strong><small>ort. nabız</small></span>}{activity.maxHeartRate !== undefined && <span><strong>{activity.maxHeartRate}</strong><small>maks. nabız</small></span>}{activity.avgCadence !== undefined && <span><strong>{activity.avgCadence}</strong><small>ort. kadans</small></span>}{activity.avgSpeedKmh !== undefined && <span><strong>{formatNumber(activity.avgSpeedKmh, 1)}</strong><small>ort. km/sa</small></span>}{activity.maxSpeedKmh !== undefined && <span><strong>{formatNumber(activity.maxSpeedKmh, 1)}</strong><small>maks. km/sa</small></span>}</div>
-    <details className="gps-details"><summary>Detaylı analiz <span>{activity.route.length ? `${activity.route.length} rota noktası` : 'özet verisi'}</span></summary><div className="gps-detail-body"><div className="gps-detail-stats"><span><small>Hareket süresi</small><b>{formatDuration(activity.movingSeconds)}</b></span><span><small>Duraklama farkı</small><b>{formatDuration(stoppedSeconds)}</b></span><span><small>Tur sayısı</small><b>{activity.splits?.length ?? '—'}</b></span><span><small>Kayıt kaynağı</small><b>{activity.source.toUpperCase()}</b></span>{activity.maxSpeedKmh !== undefined && <span><small>Maks. hız</small><b>{formatNumber(activity.maxSpeedKmh, 1)} km/sa</b></span>}{activity.maxCadence !== undefined && <span><small>Maks. kadans</small><b>{activity.maxCadence}</b></span>}{qualityLabel && <span><small>GPS kalite özeti</small><b>{qualityLabel}{typeof activity.quality?.medianAccuracyM === 'number' ? ` · ±${formatNumber(activity.quality.medianAccuracyM, 1)} m` : ''}</b></span>}{activity.quality?.acceptedSegments !== undefined && <span><small>Geçerli rota parçası</small><b>{activity.quality.acceptedSegments}</b></span>}{activity.quality?.rejectedPoints !== undefined && <span><small>Reddedilen GPS noktası</small><b>{activity.quality.rejectedPoints}</b></span>}{activity.quality?.gapSeconds !== undefined && <span><small>Kayıt boşluğu</small><b>{formatDuration(activity.quality.gapSeconds + (activity.quality.backgroundGapSeconds ?? 0))}</b></span>}{activity.quality?.stationarySamples !== undefined && <span><small>Hareketsiz örnek</small><b>{activity.quality.stationarySamples}</b></span>}</div><GpsTelemetryChart activity={activity} />{activity.splits?.length ? <div className="gps-splits-table-wrap"><table className="gps-splits-table"><caption>Tur karşılaştırması · GPS’den yaklaşık hesap</caption><thead><tr><th>Tur</th><th>Mesafe</th><th>Hareket süresi</th><th>Tempo</th></tr></thead><tbody>{activity.splits.map((split) => <tr key={split.number}><td>{split.number}</td><td>{formatNumber(split.distanceKm, 2)} km</td><td>{formatDuration(split.movingSeconds)}</td><td>{formatPace(split.paceSecondsPerKm)} /km</td></tr>)}</tbody></table></div> : null}<p className="gps-detail-note">Rota aktarımı, saklanan en fazla 600 örnek noktasını içerir; ham dosya cihazda tutulmaz. GPX dışa aktarımı bu sadeleştirilmiş rotayı verir. Uygulama GPS kalite özeti, cihazın topladığı doğruluk ve kesinti sayaçlarından alınır; ölçüm garantisi değildir.</p></div></details></div></article>;
+  const activeDistance = gpsDistanceAtProgress(activity.route, progress, activity.distanceKm);
+  const segment = gpsRouteSegmentAtProgress(activity.route, progress);
+  return <article className="gps-activity-card"><RouteMap activity={activity} progress={progress} />{activity.route.length > 1 && <div className="gps-route-playback"><div className="gps-route-playback__top"><strong>Rota oynatımı</strong><span>{formatNumber(activeDistance, 2)} / {formatNumber(activity.distanceKm, 2)} km · {formatDuration(activity.elapsedSeconds * progress)} / {formatDuration(activity.elapsedSeconds)}</span></div><input type="range" min="0" max="1" step="0.001" value={progress} aria-label={`Rota oynatımı: ${activity.fileName || 'GPS aktivitesi'}`} onChange={(event) => { setPlaying(false); setPlaybackProgress(Number(event.target.value)); }} /><div className="gps-route-playback__bottom"><span>{segment ? `Örnek ${segment.index + 1} / ${activity.route.length} · ${segment.basis === 'time' ? 'zaman' : segment.basis === 'distance' ? 'mesafe' : 'rota noktası'}` : 'Yerel rota'}</span><button type="button" onClick={() => { if (playing) setPlaying(false); else { if (progress >= 1) setPlaybackProgress(0); setPlaying(true); } }} aria-label={playing ? 'Rota oynatımını duraklat' : 'Rota oynatımını başlat'}>{playing ? 'Duraklat' : progress >= 1 ? 'Baştan oynat' : '▶ Oynat'}</button></div><p>Hızlandırılmış önizleme; işaretçi kaydedilmiş zaman varsa zamana, yoksa mesafeye göre ilerler.</p></div>}<div className="gps-activity-card__content"><div className="gps-activity-card__top"><div><span>{formatDay(activity.date)} · {activity.source === 'app' ? 'Uygulama GPS’i' : `${activity.source.toUpperCase()} içe aktarıldı`}</span><h3>{activity.fileName || 'GPS aktivitesi'}</h3></div><div className="gps-card-actions">{activity.route.length > 1 && <button type="button" className="gps-export" onClick={() => downloadGpsGpx(activity)} aria-label="Rota GPX olarak indir">GPX indir</button>}{activity.source !== 'app' && <button type="button" className="delete-gps" onClick={() => onDelete(activity.id)} aria-label="İçe aktarılan GPS kaydını sil">Sil</button>}</div></div><div className="gps-metrics"><span><strong>{formatNumber(activity.distanceKm, 2)}</strong><small>km mesafe</small></span><span><strong>{formatDuration(activity.elapsedSeconds)}</strong><small>toplam süre</small></span><span><strong>{formatPace(pace)}</strong><small>dk/km hareket temposu</small></span>{activity.elevationGainM !== undefined && <span><strong>{activity.elevationGainM}</strong><small>m tırmanış</small></span>}{activity.avgHeartRate !== undefined && <span><strong>{activity.avgHeartRate}</strong><small>ort. nabız</small></span>}{activity.maxHeartRate !== undefined && <span><strong>{activity.maxHeartRate}</strong><small>maks. nabız</small></span>}{activity.avgCadence !== undefined && <span><strong>{activity.avgCadence}</strong><small>ort. kadans</small></span>}{activity.avgSpeedKmh !== undefined && <span><strong>{formatNumber(activity.avgSpeedKmh, 1)}</strong><small>ort. km/sa</small></span>}{activity.maxSpeedKmh !== undefined && <span><strong>{formatNumber(activity.maxSpeedKmh, 1)}</strong><small>maks. km/sa</small></span>}</div>
+    <details className="gps-details"><summary>Detaylı analiz <span>{activity.route.length ? `${activity.route.length} rota noktası` : 'özet verisi'}</span></summary><div className="gps-detail-body"><div className="gps-detail-stats"><span><small>Hareket süresi</small><b>{formatDuration(activity.movingSeconds)}</b></span><span><small>Duraklama farkı</small><b>{formatDuration(stoppedSeconds)}</b></span><span><small>Tur sayısı</small><b>{activity.splits?.length ?? '—'}</b></span><span><small>Kayıt kaynağı</small><b>{activity.source.toUpperCase()}</b></span>{activity.maxSpeedKmh !== undefined && <span><small>Maks. hız</small><b>{formatNumber(activity.maxSpeedKmh, 1)} km/sa</b></span>}{activity.maxCadence !== undefined && <span><small>Maks. kadans</small><b>{activity.maxCadence}</b></span>}{qualityLabel && <span><small>GPS kalite özeti</small><b>{qualityLabel}{typeof activity.quality?.medianAccuracyM === 'number' ? ` · ±${formatNumber(activity.quality.medianAccuracyM, 1)} m` : ''}</b></span>}{activity.quality?.acceptedSegments !== undefined && <span><small>Geçerli rota parçası</small><b>{activity.quality.acceptedSegments}</b></span>}{activity.quality?.rejectedPoints !== undefined && <span><small>Reddedilen GPS noktası</small><b>{activity.quality.rejectedPoints}</b></span>}{activity.quality?.gapSeconds !== undefined && <span><small>Kayıt boşluğu</small><b>{formatDuration(activity.quality.gapSeconds + (activity.quality.backgroundGapSeconds ?? 0))}</b></span>}{activity.quality?.stationarySamples !== undefined && <span><small>Hareketsiz örnek</small><b>{activity.quality.stationarySamples}</b></span>}</div><GpsTelemetryChart activity={activity} progress={progress} />{activity.splits?.length ? <div className="gps-splits-table-wrap"><table className="gps-splits-table"><caption>Tur karşılaştırması · GPS’den yaklaşık hesap</caption><thead><tr><th>Tur</th><th>Mesafe</th><th>Hareket süresi</th><th>Tempo</th></tr></thead><tbody>{activity.splits.map((split) => <tr key={split.number}><td>{split.number}</td><td>{formatNumber(split.distanceKm, 2)} km</td><td>{formatDuration(split.movingSeconds)}</td><td>{formatPace(split.paceSecondsPerKm)} /km</td></tr>)}</tbody></table></div> : null}<p className="gps-detail-note">Rota aktarımı, saklanan en fazla 600 örnek noktasını içerir; ham dosya cihazda tutulmaz. GPX dışa aktarımı bu sadeleştirilmiş rotayı verir. Uygulama GPS kalite özeti, cihazın topladığı doğruluk ve kesinti sayaçlarından alınır; ölçüm garantisi değildir.</p></div></details></div></article>;
 }
 
 function LineTrend({ rows, metrics }: { rows: Array<Record<string, number | string>>; metrics: Array<{ key: string; label: string; color: string }> }) {

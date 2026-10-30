@@ -8,7 +8,7 @@ Depoda özgün React kaynakları veya source map bulunmadığından mevcut ana u
 
 ## Yerel geliştirme, test ve derleme
 
-Node.js 18+ ve npm gerekir.
+Node.js 20.19+ veya 22.12+ ve npm gerekir (Vite 7).
 
 ```bash
 cd hbk-spor-src

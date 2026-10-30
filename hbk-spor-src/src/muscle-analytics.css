@@ -71,6 +71,9 @@
 .muscle-data-tools span { flex: 1 1 100%; color: var(--muscle-muted); font-size: 9px; letter-spacing: .015em; }
 .muscle-data-tools button { min-height: 35px; padding: 0 12px; border: 1px solid rgba(197,242,122,.19); border-radius: 10px; background: rgba(197,242,122,.07); color: #d9f5af; font-size: 10px; font-weight: 800; cursor: pointer; transition: .18s ease; }
 .muscle-data-tools button:hover { border-color: #c5f27a88; background: rgba(197,242,122,.14); }
+.muscle-backup-preview { display: grid; gap: 8px; margin: -4px 0 16px; padding: 14px; border: 1px solid rgba(110,231,183,.3); border-radius: 14px; background: linear-gradient(140deg,rgba(16,65,54,.2),rgba(255,255,255,.025)); }
+.muscle-backup-preview>div:first-child { display: grid; gap: 4px; }.muscle-backup-preview>div:first-child strong { color: #d9f8e6; font-size: 11px; overflow-wrap: anywhere; }.muscle-backup-preview>div:first-child span,.muscle-backup-preview p { margin: 0; color: var(--muscle-muted); font-size: 9px; line-height: 1.5; }.muscle-backup-preview p b { color: #dce9df; }
+.muscle-backup-preview>div:last-child { display: flex; flex-wrap: wrap; gap: 8px; }.muscle-backup-preview .muscle-primary { margin: 0; }.muscle-secondary { min-height: 40px; padding: 0 14px; border: 1px solid rgba(255,255,255,.14); border-radius: 11px; background: rgba(255,255,255,.04); color: #c7d4ce; font-size: 10px; font-weight: 800; cursor: pointer; }
 
 .muscle-report { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 15px; padding-top: 0; }
 .muscle-report__topline { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; }

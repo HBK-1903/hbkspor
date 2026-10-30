@@ -1,6 +1,7 @@
 import type { AppData } from './types';
 
-const STORAGE_KEY = 'hbk_spor_rebuild_v1';
+export const STORAGE_KEY = 'hbk_spor_rebuild_v1';
+export const LAST_BACKUP_KEY = 'hbk_spor_last_backup_export_v1';
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NonNullable<AppData['notificationPreferences']> = { enabled: false, planReminders: true, leadMinutes: 30, dailyReminder: false, dailyTime: '18:00', weeklySummary: false };
 const EMPTY_DATA: AppData = { profile: null, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [], weeklyPlan: [], customGoals: [], customDrills: [], notificationPreferences: DEFAULT_NOTIFICATION_PREFERENCES, notificationSentKeys: [] };
@@ -34,6 +35,9 @@ export function loadAppData(): AppData {
       goalCompletions: completions,
       workoutTemplates: Array.isArray(parsed.workoutTemplates) ? parsed.workoutTemplates : [],
       skillTests: Array.isArray(parsed.skillTests) ? parsed.skillTests : [],
+      skillTestTargets: parsed.skillTestTargets && typeof parsed.skillTestTargets === 'object' && !Array.isArray(parsed.skillTestTargets)
+        ? Object.fromEntries(Object.entries(parsed.skillTestTargets).filter(([key, value]) => key.length <= 100 && !['__proto__', 'constructor', 'prototype'].includes(key) && typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 100000).slice(0, 100))
+        : {},
       gpsActivities: Array.isArray(parsed.gpsActivities) ? parsed.gpsActivities : [],
       weeklyPlan: Array.isArray(parsed.weeklyPlan) ? parsed.weeklyPlan.map((item) => ({ ...item, time: typeof item.time === 'string' ? item.time : '17:00' })) : [],
       customGoals: Array.isArray(parsed.customGoals) ? parsed.customGoals : [],
@@ -47,13 +51,40 @@ export function loadAppData(): AppData {
   }
 }
 
+export function persistAppData(data: AppData): boolean {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); return true; }
+  catch { return false; }
+}
+
 export function saveAppData(data: AppData): void {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
-  catch (error) { console.warn('HBK Spor local save failed:', error); }
+  if (!persistAppData(data)) console.warn('HBK Spor local save failed: browser storage quota or access denied.');
+}
+
+export function getLastBackupExportAt(): string | null {
+  try {
+    const value = localStorage.getItem(LAST_BACKUP_KEY);
+    return value && Number.isFinite(Date.parse(value)) ? value : null;
+  } catch { return null; }
+}
+
+export function clearLastBackupExportAt(): void {
+  try { localStorage.removeItem(LAST_BACKUP_KEY); } catch { /* storage may be disabled */ }
+}
+
+export function getSavedAppDataBytes(): number {
+  try { return new Blob([localStorage.getItem(STORAGE_KEY) ?? '']).size; }
+  catch { return 0; }
 }
 
 export function exportJson(data: AppData): void {
-  downloadFile(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), `hbk-spor-yedek-${new Date().toISOString().slice(0, 10)}.json`);
+  const exportedAt = new Date().toISOString();
+  const payload = {
+    app: 'hbk-spor-source-rebuild', schemaVersion: 1, exportedAt,
+    counts: { sessions: data.sessions.length, gpsActivities: data.gpsActivities?.length ?? 0, skillTests: data.skillTests?.length ?? 0 },
+    data,
+  };
+  downloadFile(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }), `hbk-spor-yedek-${exportedAt.slice(0, 10)}.json`);
+  try { localStorage.setItem(LAST_BACKUP_KEY, exportedAt); } catch { /* reminder metadata is best-effort */ }
 }
 
 export function buildSessionsCsv(data: AppData): string {

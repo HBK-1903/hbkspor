@@ -5,6 +5,10 @@ import ExtendedAnalyticsView from './ExtendedAnalyticsView';
 import { currentWeekStart, localDayKey } from './dates';
 import type { AnalyticsData } from './types';
 
+vi.mock('./GpsLeafletMap', () => ({
+  default: ({ activityName }: { activityName: string }) => <div data-testid="interactive-gps-map" role="region" aria-label={`${activityName} interaktif OpenStreetMap haritası`}>{activityName}</div>,
+}));
+
 afterEach(() => cleanup());
 
 const today = localDayKey();
@@ -56,11 +60,20 @@ describe('extended performance analytics', () => {
   });
 
 
-  it('shows GPS period insights, telemetry charts, split details and the activity sort control', () => {
+  it('shows GPS insights and loads an interactive map only after explicit opt-in', async () => {
     render(<ExtendedAnalyticsView {...baseProps} section="gps" />);
     expect(screen.getByText('Haftalık mesafe')).toBeTruthy();
     expect(screen.getByText('Toplam mesafe')).toBeTruthy();
     expect(screen.getByLabelText('GPS aktivitelerini sırala')).toBeTruthy();
+    expect(screen.getByRole('img', { name: /yerel GPS rota önizlemesi/i })).toBeTruthy();
+    expect(screen.getByText(/OpenStreetMap, gösterilen bölgenin yaklaşık konumunu/)).toBeTruthy();
+    expect(screen.queryByTestId('interactive-gps-map')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'İnteraktif OpenStreetMap haritasını yükle' }));
+    expect(await screen.findByTestId('interactive-gps-map')).toBeTruthy();
+    expect(screen.getByRole('region', { name: /interaktif OpenStreetMap haritası/ })).toBeTruthy();
+    expect(screen.getByText(/OpenStreetMap altlık sağlayıcısı/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Haritayı kapat' }));
+    expect(screen.queryByTestId('interactive-gps-map')).toBeNull();
     fireEvent.click(screen.getByText('Detaylı analiz'));
     expect(screen.getByRole('tab', { name: 'Tempo' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'GPS doğruluk tahmini' })).toBeTruthy();
@@ -69,6 +82,21 @@ describe('extended performance analytics', () => {
     expect(screen.getByRole('tab', { name: 'Nabız' }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByText('Tur karşılaştırması · GPS’den yaklaşık hesap')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Rota GPX olarak indir' })).toBeTruthy();
+  });
+
+  it('scrubs the route marker and compares two GPS activities on a shared local map', () => {
+    const secondActivity = { ...dataset.gpsActivities[0], id: 'gpx-2', date: today, fileName: 'tempo-run.gpx', distanceKm: 3.2, route: gpsRoute.map((point) => ({ ...point, lon: point.lon + 0.01 })) };
+    render(<ExtendedAnalyticsView {...baseProps} data={{ ...dataset, gpsActivities: [dataset.gpsActivities[0], secondActivity] }} section="gps" />);
+    expect(screen.getByRole('heading', { name: 'İki aktiviteyi karşılaştır' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'İki GPS aktivitesinin yerel rota üst üste görünümü' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Fark (B−A)' })).toBeTruthy();
+    const timeline = screen.getByRole('slider', { name: 'Rota oynatımı: training.gpx' });
+    fireEvent.change(timeline, { target: { value: '0.5' } });
+    expect((timeline as HTMLInputElement).value).toBe('0.5');
+    expect(screen.getByText(/Örnek 2 \/ 3 · zaman/)).toBeTruthy();
+    expect(screen.getAllByText(/Oynatımda:/).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText('Karşılaştırma aktivitesi B'), { target: { value: 'gpx-1' } });
+    expect((screen.getByLabelText('Karşılaştırma aktivitesi B') as HTMLSelectElement).value).toBe('gpx-2');
   });
 
   it('shows self-reported recovery trends, test results and personal bests from existing data', () => {

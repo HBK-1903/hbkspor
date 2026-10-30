@@ -170,6 +170,8 @@ export interface AppData {
   goalCompletions?: Record<string, string[]>;
   workoutTemplates?: WorkoutTemplate[];
   skillTests?: SkillTestRecord[];
+  /** Per-test targets; lower-is-better tests use a target ceiling. */
+  skillTestTargets?: Record<string, number>;
   /** User-imported GPX tracks remain separate from logged training sessions. */
   gpsActivities?: GpsActivity[];
   weeklyPlan?: WeeklyPlanItem[];
