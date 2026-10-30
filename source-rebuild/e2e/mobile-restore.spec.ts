@@ -71,6 +71,7 @@ test('restores JSON records and their media on a clean mobile browser profile', 
     const page = await restoreContext.newPage();
     page.on('dialog', (dialog) => void dialog.accept());
     await page.goto('/');
+    await page.getByRole('button', { name: 'Profilimi oluştur' }).click();
     await page.getByLabel('Ad soyad').fill('Temiz cihaz');
     await page.getByRole('button', { name: /Profilimi kaydet/ }).click();
     await openSettings(page);
