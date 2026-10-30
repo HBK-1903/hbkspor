@@ -150,7 +150,8 @@ export async function restoreLocalMediaBackup(buffer: ArrayBuffer): Promise<{ vo
     for (const item of backup.items) {
       const start = backup.payloadOffset + item.offset;
       const blob = new Blob([backup.payload.slice(start, start + item.size)], { type: item.type });
-      transaction.objectStore(item.store === 'voiceNotes' ? STORE_NAME : MATCH_MEDIA_STORE).put(blob, item.id);
+      const request = transaction.objectStore(item.store === 'voiceNotes' ? STORE_NAME : MATCH_MEDIA_STORE).put(blob, item.id);
+      request.onerror = () => reject(request.error ?? new Error(`Medya dosyası yazılamadı: ${item.id}`));
     }
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error ?? new Error('Medya dosyaları geri yüklenemedi.'));
