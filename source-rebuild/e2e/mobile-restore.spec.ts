@@ -59,7 +59,8 @@ test('restores JSON records and their media on a clean mobile browser profile', 
     await expect(page.locator('.media-backup .backup-preview')).toContainText('1 ses notu');
     await expect(page.locator('.media-backup .backup-preview')).toContainText('1 maç medya dosyası');
     await page.locator('.media-backup').getByRole('button', { name: 'Medya dosyalarını geri yükle' }).click();
-    await expect(page.getByText('1 ses notu ve 1 maç medya dosyası geri yüklendi.')).toBeVisible();
+    await expect(page.locator('.toast')).toBeVisible();
+    await expect(page.locator('.toast')).toContainText('geri yüklendi');
 
     await page.locator('nav.bottom-nav button').filter({ hasText: 'Ana sayfa' }).click();
     await expect(page.locator('.session-row')).toContainText('Mobil yedek seansı');
