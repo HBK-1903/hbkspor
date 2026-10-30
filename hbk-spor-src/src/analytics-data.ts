@@ -122,7 +122,7 @@ export function readSupplementalAnalytics(workouts: LegacyWorkout[]): AnalyticsS
   return { gpsActivities: [...uniqueGps.values()].sort((a, b) => b.date.localeCompare(a.date)), skillTests, wellness };
 }
 
-function isGpsActivity(value: unknown): value is GpsActivity {
+export function isGpsActivity(value: unknown): value is GpsActivity {
   if (!value || typeof value !== 'object') return false;
   const activity = value as Partial<GpsActivity>;
   const optionalNumber = (number: unknown, min = 0) => number === undefined || (typeof number === 'number' && Number.isFinite(number) && number >= min);

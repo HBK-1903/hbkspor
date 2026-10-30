@@ -93,6 +93,6 @@ export function VoiceNoteRecorder({ onReady, onRecordingChange }: { onReady: (bl
     <div className="voice-note-recorder__actions">{recording ? <button type="button" className="voice-stop" onClick={stop}>■ Kaydı bitir</button> : <button type="button" className="secondary-button" onClick={start}>🎙 {audioUrl ? 'Yeniden kaydet' : 'Kayda başla'}</button>}{audioUrl && <button type="button" className="text-button" onClick={discard}>Sil</button>}</div>
     {audioUrl && <audio className="voice-audio-preview" controls preload="metadata" src={audioUrl}>Tarayıcın ses oynatmayı desteklemiyor.</audio>}
     {error && <p className="voice-note-error" role="alert">{error}</p>}
-    <p className="voice-note-privacy">Ses cihazında saklanır ve JSON yedeğine dahil edilmez. Mikrofon yalnızca kayda basınca açılır.</p>
+    <p className="voice-note-privacy">Ses cihazında saklanır; JSON yedeğine değil, Ayarlar’daki ayrı medya yedeğine eklenir. Mikrofon yalnızca kayda basınca açılır.</p>
   </section>;
 }

@@ -3,7 +3,8 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import catalogJson from './data/exercise-catalog.json';
 import { currentWeekStart, addLocalDays, formatDay, localDayKey } from './dates';
 import { loadSetEffortMetadata, readLegacyTrainingData, saveSetEffortMetadata, setMetadataKey } from './db';
-import { loadImportedGpsActivities, parseGpsDeviceFile, readSupplementalAnalytics, saveImportedGpsActivities, MAX_GPX_BYTES } from './analytics-data';
+import { GPS_IMPORTS_KEY, loadImportedGpsActivities, parseGpsDeviceFile, readSupplementalAnalytics, saveImportedGpsActivities, MAX_GPX_BYTES } from './analytics-data';
+import { validateAnalyticsBackup, type ValidatedAnalyticsBackup } from './analytics-backup';
 import ExtendedAnalyticsView, { type AnalyticsSection } from './ExtendedAnalyticsView';
 import MovementLibrary from './MovementLibrary';
 import {
@@ -13,10 +14,11 @@ import {
   summarizeMuscleLoads,
   type FlattenedSet,
 } from './muscles';
-import type { AnalyticsData, ExerciseDefinition, GpsActivity, LegacyWorkout, MuscleGroup, MuscleLoad, SetEffortStore } from './types';
+import type { AnalyticsData, ExerciseDefinition, LegacyWorkout, MuscleGroup, MuscleLoad, SetEffortStore } from './types';
 
 const STATIC_CATALOG = catalogJson as ExerciseDefinition[];
 type RangeWeeks = 4 | 8 | 12;
+type BackupPreview = { fileName: string; backup: ValidatedAnalyticsBackup };
 
 export default function MuscleAnalyticsLauncher() {
   const [open, setOpen] = useState(false);
@@ -28,6 +30,7 @@ export default function MuscleAnalyticsLauncher() {
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup | null>(null);
   const [selectedExercise, setSelectedExercise] = useState('');
   const [section, setSection] = useState<AnalyticsSection>('overview');
+  const [backupPreview, setBackupPreview] = useState<BackupPreview | null>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const effortFileInput = useRef<HTMLInputElement>(null);
 
@@ -154,7 +157,15 @@ export default function MuscleAnalyticsLauncher() {
   };
 
   const exportEffort = () => {
-    const payload = { schemaVersion: 2, exportedAt: new Date().toISOString(), setEffort: effort, gpsImports: loadImportedGpsActivities() };
+    const gpsImports = loadImportedGpsActivities();
+    const payload = {
+      app: 'hbk-spor-analytics',
+      schemaVersion: 3,
+      exportedAt: new Date().toISOString(),
+      counts: { setEffort: Object.keys(effort).length, gpsImports: gpsImports.length },
+      setEffort: effort,
+      gpsImports,
+    };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -168,42 +179,59 @@ export default function MuscleAnalyticsLauncher() {
     if (!file) return;
     try {
       if (file.size > 10_000_000) throw new Error('Analiz yedeği 10 MB sınırını aşıyor.');
-      const parsed: unknown = JSON.parse(await file.text());
-      if (!parsed || typeof parsed !== 'object' || !('schemaVersion' in parsed) || ![1, 2].includes(Number(parsed.schemaVersion)) || !('setEffort' in parsed)) {
-        throw new Error('Bu dosya HBK Spor analiz yedeği değil veya biçimi desteklenmiyor.');
+      const backup = validateAnalyticsBackup(await file.text());
+      setBackupPreview({ fileName: file.name, backup });
+      setError('');
+    } catch (cause) {
+      setBackupPreview(null);
+      setError(cause instanceof Error ? cause.message : 'Yedek doğrulanamadı.');
+    } finally {
+      if (effortFileInput.current) effortFileInput.current.value = '';
+    }
+  };
+
+  const applyBackup = () => {
+    if (!backupPreview) return;
+    const { backup } = backupPreview;
+    const acceptedGps = backup.gpsActivities.length;
+    const mergeGps = backup.gpsMergeable && acceptedGps > 0;
+    if (!Object.keys(backup.setEffort).length && !acceptedGps) {
+      setError('Yedekte aktarılabilecek geçerli kayıt yok; hiçbir veri değiştirilmedi.');
+      return;
+    }
+    const warning = backup.invalidSetEntries || backup.invalidGpsEntries
+      ? ` Geçersiz kayıtlar (set: ${backup.invalidSetEntries}, GPS: ${backup.invalidGpsEntries}) yok sayılacak.`
+      : '';
+    const gpsText = backup.includesGps ? `${acceptedGps} GPS rotası` : 'GPS kaydı içermeyen';
+    if (!window.confirm(`${Object.keys(backup.setEffort).length} set kaydı ve ${gpsText} yedek mevcut kayıtlarla birleştirilecek. Aynı anahtardaki set değerleri yedektekiyle değişir.${warning} Devam edilsin mi?`)) return;
+
+    let previousGps: string | null = null;
+    let gpsWritten = false;
+    try {
+      const mergedEffort = { ...effort, ...backup.setEffort };
+      if (mergeGps) {
+        previousGps = window.localStorage.getItem(GPS_IMPORTS_KEY);
+        const byId = new Map([...loadImportedGpsActivities(), ...backup.gpsActivities].map((activity) => [activity.id, activity]));
+        if (!saveImportedGpsActivities([...byId.values()])) throw new Error('GPS rotaları tarayıcıya yazılamadı.');
+        gpsWritten = true;
       }
-      const incoming = parsed.setEffort;
-      if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) throw new Error('Yedek içindeki kayıtlar geçersiz.');
-      const valid: SetEffortStore = {};
-      for (const [key, value] of Object.entries(incoming)) {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
-        const item = value as { rpe?: unknown; restSeconds?: unknown };
-        const rpeOk = item.rpe === undefined || (typeof item.rpe === 'number' && Number.isInteger(item.rpe) && item.rpe >= 1 && item.rpe <= 10);
-        const restOk = item.restSeconds === undefined || (typeof item.restSeconds === 'number' && Number.isInteger(item.restSeconds) && item.restSeconds >= 0 && item.restSeconds <= 600);
-        if (key.length > 300 || !rpeOk || !restOk) continue;
-        valid[key] = {
-          ...(typeof item.rpe === 'number' ? { rpe: item.rpe } : {}),
-          ...(typeof item.restSeconds === 'number' ? { restSeconds: item.restSeconds } : {}),
-        };
-      }
-      const gpsImports = 'gpsImports' in parsed && Array.isArray(parsed.gpsImports)
-        ? parsed.gpsImports.filter((activity): activity is GpsActivity => Boolean(activity && typeof activity === 'object' && 'source' in activity && ['gpx', 'tcx', 'fit'].includes(String(activity.source))))
-        : [];
-      if (!window.confirm(`${Object.keys(valid).length} set kaydı ve ${gpsImports.length} içe aktarılmış GPS rotası yedekle birleştirilecek. Aynı setlere ait ek bilgiler yedektekilerle değişebilir. Devam edilsin mi?`)) return;
-      const next = { ...effort, ...valid };
-      if (!saveSetEffortMetadata(next)) throw new Error('Yedek tarayıcıda saklanamadı.');
-      setEffort(next);
-      if ('gpsImports' in parsed && Array.isArray(parsed.gpsImports)) {
-        const byId = new Map([...loadImportedGpsActivities(), ...gpsImports].map((activity) => [activity.id, activity]));
-        if (!saveImportedGpsActivities([...byId.values()])) throw new Error('Rota yedeği tarayıcıda saklanamadı.');
+      if (!saveSetEffortMetadata(mergedEffort)) throw new Error('Set kayıtları tarayıcıya yazılamadı.');
+      setEffort(mergedEffort);
+      if (mergeGps) {
         const mergedImports = loadImportedGpsActivities();
         setData((current) => current ? { ...current, gpsActivities: [...current.gpsActivities.filter((activity) => activity.source === 'app'), ...mergedImports].sort((a, b) => b.date.localeCompare(a.date)) } : current);
       }
-      setError('Analiz yedeği bu cihazdaki kayıtlarla birleştirildi.');
+      setBackupPreview(null);
+      setError('Analiz yedeği doğrulandı ve bu cihazdaki kayıtlarla birleştirildi.');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Yedek içe aktarılamadı.');
-    } finally {
-      if (effortFileInput.current) effortFileInput.current.value = '';
+      let rollbackSucceeded = true;
+      if (gpsWritten) {
+        try {
+          if (previousGps === null) window.localStorage.removeItem(GPS_IMPORTS_KEY);
+          else window.localStorage.setItem(GPS_IMPORTS_KEY, previousGps);
+        } catch { rollbackSucceeded = false; }
+      }
+      setError(`${cause instanceof Error ? cause.message : 'Yedek uygulanamadı.'}${gpsWritten ? rollbackSucceeded ? ' GPS kaydı geri alındı; başka veri değiştirilmedi.' : ' GPS geri alma başarısız oldu; sayfayı yenileyip yerel kayıtları kontrol et.' : ' Önceki kayıtlar korunuyor.'}`);
     }
   };
 
@@ -216,7 +244,8 @@ export default function MuscleAnalyticsLauncher() {
             <div className="muscle-panel__actions"><button type="button" className="muscle-refresh" onClick={() => void refresh()} disabled={loading}>{loading ? 'Yükleniyor…' : '↻ Yenile'}</button><button ref={closeButton} type="button" className="muscle-close" onClick={() => setOpen(false)} aria-label="Performans analizini kapat">×</button></div>
           </header>
           {error && <div className="muscle-alert" role="alert">{error}</div>}
-          {data && <div className="muscle-data-tools"><span>Set RPE ve içe aktarılan GPS rotaları yerel analiz yedeğine dahil edilir.</span><button type="button" onClick={exportEffort}>Analiz yedeğini indir</button><button type="button" onClick={() => effortFileInput.current?.click()}>Analiz yedeğini içe aktar</button><input ref={effortFileInput} type="file" accept="application/json,.json" hidden onChange={(event) => void importEffort(event.target.files?.[0])} /></div>}
+          {data && <div className="muscle-data-tools"><span>Analiz yedeği yalnızca Set RPE/dinlenme ve içe aktarılan GPS rotalarını kapsar; ana antrenman veya maç kayıtları dahil değildir.</span><button type="button" onClick={exportEffort}>Analiz yedeğini indir</button><button type="button" onClick={() => effortFileInput.current?.click()}>Analiz yedeğini doğrula / içe aktar</button><input ref={effortFileInput} type="file" accept="application/json,.json" hidden onChange={(event) => void importEffort(event.target.files?.[0])} /></div>}
+          {backupPreview && <section className="muscle-backup-preview" aria-live="polite"><div><strong>Yedek önizlemesi · {backupPreview.fileName}</strong><span>Biçim v{backupPreview.backup.schemaVersion} · {backupPreview.backup.totalSetEntries} set kaydı, {backupPreview.backup.totalGpsEntries} GPS kaydı tarandı.</span></div><p><b>İçe aktarılacak:</b> {Object.keys(backupPreview.backup.setEffort).length} geçerli set kaydı{backupPreview.backup.includesGps ? `, ${backupPreview.backup.gpsActivities.length} doğrulanmış GPS rotası` : ', GPS verisi yok'}.</p><p><b>Yok sayılacak:</b> {backupPreview.backup.invalidSetEntries} geçersiz set kaydı, {backupPreview.backup.invalidGpsEntries} geçersiz GPS kaydı. Bu dosya ana antrenman geçmişini içermez.</p><div><button type="button" className="muscle-primary" onClick={applyBackup}>Doğrula ve birleştir</button><button type="button" className="muscle-secondary" onClick={() => setBackupPreview(null)}>İptal</button></div></section>}
           {loading && !data ? <div className="muscle-empty" role="status">Antrenman kayıtların yükleniyor…</div> : data ? <AnalyticsWorkspace data={data} effort={effort} weeks={weeks} setWeeks={setWeeks} section={section} setSection={setSection} selectedMuscle={selectedMuscle} setSelectedMuscle={setSelectedMuscle} selectedExercise={selectedExercise} setSelectedExercise={setSelectedExercise} onEffortChange={updateEffort} onGpsImport={importGpsFile} onDeleteGps={deleteGpsImport} /> : <div className="muscle-empty"><h2>Veriler okunamadı</h2><p>Uygulamanın ana ekranı kullanılabilir. Analizi tekrar yenileyebilirsin.</p><button type="button" className="muscle-primary" onClick={() => void refresh()}>Tekrar dene</button></div>}
           <footer className="muscle-footer">Mevcut uygulama kayıtları salt okunur. Ek RPE bilgisi ve içe aktarılan GPS dosyaları ayrı yerel anahtarlarda saklanır.</footer>
         </div>

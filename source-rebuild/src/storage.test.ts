@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildSessionsCsv, loadAppData } from './storage';
+import { buildSessionsCsv, loadAppData, persistAppData } from './storage';
 import type { AppData } from './types';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -16,6 +16,17 @@ describe('local data migration', () => {
     const legacy = { profile: { name: 'Yıldız', position: 'Kanat', dominantFoot: 'Sağ', createdAt: '2026-10-29' }, sessions: [{ id: 'demo', kind: 'pitch', title: 'İlk saha çalışmam', minutes: 35, xp: 40, date: '2026-10-29', note: 'Demo antrenmanı' }], completedGoals: [] };
     vi.stubGlobal('localStorage', { getItem: () => JSON.stringify(legacy) });
     expect(loadAppData().demoMode).toBe(true);
+  });
+
+  it('loads only bounded, non-prototype performance-test targets', () => {
+    const raw = '{"sessions":[],"completedGoals":[],"skillTestTargets":{"sprint-20m":3.4,"__proto__":4,"too-large":100001,"bad":"4"}}';
+    vi.stubGlobal('localStorage', { getItem: () => raw });
+    expect(loadAppData().skillTestTargets).toEqual({ 'sprint-20m': 3.4 });
+  });
+
+  it('reports failed restore writes instead of hiding a storage-quota failure', () => {
+    vi.stubGlobal('localStorage', { setItem: () => { throw new Error('quota'); } });
+    expect(persistAppData(data)).toBe(false);
   });
 });
 

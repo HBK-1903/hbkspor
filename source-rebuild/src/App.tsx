@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { DEFAULT_NOTIFICATION_PREFERENCES, exportJson, exportSessionsCsv, loadAppData, saveAppData } from './storage';
+import { clearLastBackupExportAt, DEFAULT_NOTIFICATION_PREFERENCES, exportJson, exportSessionsCsv, getLastBackupExportAt, loadAppData, persistAppData, saveAppData } from './storage';
+import { mergeAppData, validateAppBackup, type ValidatedAppBackup } from './backup';
+import { downloadPlanCalendar } from './calendar-export';
+import { BackupHealthCard } from './BackupHealthCard';
 import {
   EXERCISE_LIBRARY,
   formatSetDetails,
@@ -18,12 +21,14 @@ import {
   XP_REWARDS,
 } from './training';
 import type { AppData, CustomDrill, CustomGoal, ExerciseSet, LoggedExercise, MatchEvent, MatchEventType, MuscleGroup, PlayerCardAppearance, SessionKind, SkillTestRecord, TrainingSession, WeeklyPlanItem, WorkoutTemplate } from './types';
+import './backup-calendar-goals.css';
 import { DrillLibrary, ExerciseVisualLibrary, GpsActivityLibrary, ProgressAchievements, WeeklyComparison, WeeklyPlanner } from './visual-features';
 import type { Drill } from './drills';
 import type { GpsActivity } from './types';
 import { PlayerCardEditor } from './PlayerCardEditor';
 import { DEFAULT_CARD_APPEARANCE } from './player-card';
-import { clearMatchMedia, clearVoiceNotes, deleteMatchMedia, deleteVoiceNote, saveMatchMedia, saveVoiceNote } from './audio-notes';
+import { clearMatchMedia, clearVoiceNotes, deleteMatchMedia, deleteVoiceNote, exportLocalMediaBackup, inspectMediaBackup, restoreLocalMediaBackup, saveMatchMedia, saveVoiceNote } from './audio-notes';
+import { MAX_MEDIA_ARCHIVE_FILE_BYTES } from './media-backup';
 import { MatchMediaGallery, MatchMediaPicker } from './MatchMedia';
 import type { PendingMatchMedia } from './MatchMedia';
 import { NotificationSettings } from './NotificationSettings';
@@ -70,6 +75,8 @@ const SKILL_TEST_TEMPLATES = [
 
 const shortDate = (value: string) => new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' }).format(new Date(`${value}T12:00:00`));
 const numberFormat = (value: number, maximumFractionDigits = 1) => new Intl.NumberFormat('tr-TR', { maximumFractionDigits }).format(value);
+type RestorePreview = { fileName: string; backup: ValidatedAppBackup };
+type MediaRestorePreview = { fileName: string; voiceNotes: number; matchMedia: number; byteLength: number };
 
 interface ExerciseDraft {
   exerciseId: string;
@@ -117,6 +124,13 @@ export default function App() {
   const [pushEnabled, setPushEnabled] = useState(() => isPushLocallyEnabled());
   const [pushError, setPushError] = useState('');
   const [toast, setToast] = useState('');
+  const [restorePreview, setRestorePreview] = useState<RestorePreview | null>(null);
+  const [mediaRestorePreview, setMediaRestorePreview] = useState<MediaRestorePreview | null>(null);
+  const [mediaBackupBusy, setMediaBackupBusy] = useState(false);
+  const [lastBackupAt, setLastBackupAt] = useState<string | null>(() => getLastBackupExportAt());
+  const restoreInput = useRef<HTMLInputElement>(null);
+  const mediaRestoreInput = useRef<HTMLInputElement>(null);
+  const mediaRestoreFile = useRef<File | null>(null);
   const notificationInFlight = useRef(new Set<string>());
 
   useEffect(() => saveAppData(data), [data]);
@@ -167,6 +181,7 @@ export default function App() {
   const level = Math.floor(totalXp / 150) + 1;
   const levelProgress = totalXp % 150;
   const todaySessions = data.sessions.filter((session) => session.date === today);
+  const todayPlan = [...(data.weeklyPlan ?? [])].filter((item) => item.date === today).sort((a, b) => a.time.localeCompare(b.time));
   const streak = getStreak(data.sessions);
   const weekStart = getWeekStartKey();
   const weekEnd = shiftLocalDate(weekStart, 6);
@@ -305,6 +320,11 @@ export default function App() {
 
   const deleteWorkoutTemplate = (id: string) => setData((current) => ({ ...current, workoutTemplates: (current.workoutTemplates ?? []).filter((template) => template.id !== id) }));
 
+  const startWorkoutTemplate = (template: WorkoutTemplate) => {
+    openAction(template.kind);
+    applyTemplate(template);
+  };
+
   const addMatchEvent = () => {
     const minute = Number(matchEventMinute);
     if (!Number.isInteger(minute) || minute < 0 || minute > 150 || matchEvents.length >= 50) {
@@ -321,6 +341,14 @@ export default function App() {
     const record: SkillTestRecord = { ...test, id: crypto.randomUUID(), date: today };
     setData((current) => ({ ...current, skillTests: [record, ...(current.skillTests ?? [])] }));
     setToast(`${test.name} sonucu kaydedildi.`);
+  };
+
+  const saveSkillTestTarget = (testId: string, target: number | null) => {
+    setData((current) => {
+      const targets = { ...(current.skillTestTargets ?? {}) };
+      if (target === null) delete targets[testId]; else targets[testId] = target;
+      return { ...current, skillTestTargets: targets };
+    });
   };
 
   const importGpsActivity = (activity: GpsActivity) => {
@@ -465,7 +493,10 @@ export default function App() {
       catch { cleanupWarning += ' Push sunucusu erişilemedi; cihaz aboneliği kaldırıldı, kalan kayıt sunucuya ulaşılamadı.'; }
       finally { setPushEnabled(false); }
     }
-    setData({ profile: null, demoMode: false, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], gpsActivities: [], weeklyPlan: [], customGoals: [], customDrills: [], playerCard: undefined });
+    setData({ profile: null, demoMode: false, sessions: [], completedGoals: [], goalCompletions: {}, workoutTemplates: [], skillTests: [], skillTestTargets: {}, gpsActivities: [], weeklyPlan: [], customGoals: [], customDrills: [], playerCard: undefined });
+    clearLastBackupExportAt();
+    setLastBackupAt(null);
+    setRestorePreview(null);
     setToast(`Profil ve kayıtlar sıfırlandı.${cleanupWarning}`);
   };
 
@@ -488,7 +519,9 @@ export default function App() {
       </section>
       <section className="section-head"><div><p className="eyebrow">BUGÜN · {new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long' }).format(new Date())}</p><h2>Bugünün rotası</h2></div><span className="streak">🔥 {streak} gün</span></section>
       <button className="route-card" onClick={() => openAction('gym')}><span className="route-icon">🏋️</span><span className="route-copy"><b>Kuvvet antrenmanı</b><small>{todaySessions.length ? 'Çalışmanı kaydet veya hareketlerini ekle' : 'Hareketlerini ve setlerini kaydet'}</small></span><span className="route-arrow">›</span></button>
+      <section className="card today-plan" aria-label="Bugünün planlı çalışmaları"><div className="section-head compact"><div><p className="eyebrow">BUGÜNÜN PLANI</p><h2>{todayPlan.length ? `${todayPlan.filter((item) => item.completedSessionId).length}/${todayPlan.length} tamamlandı` : 'Bugün plan yok'}</h2></div><button className="text-button" onClick={() => setTab('calendar')}>Planı düzenle</button></div>{todayPlan.length ? <div className="today-plan__list">{todayPlan.map((item) => <div className={`today-plan__item ${item.completedSessionId ? 'is-done' : ''}`} key={item.id}><time>{item.time}</time><span className="today-plan__copy"><b>{item.title}</b><small>{LABELS[item.kind]} · {item.minutes} dk{item.completedSessionId ? ' · Kaydedildi' : ''}</small></span>{item.completedSessionId ? <span className="today-plan__done" aria-label="Tamamlandı">✓</span> : <button type="button" className="today-plan__start" onClick={() => startPlanItem(item)}>Başlat</button>}</div>)}</div> : <div className="today-plan__empty"><p>Bugün için planlı çalışma yok. Haftalık planından ekleyebilir veya serbest antrenman kaydedebilirsin.</p><button type="button" className="text-button" onClick={() => setTab('calendar')}>Takvimde planla →</button></div>}</section>
       <div className="quick-actions">{ACTIONS.slice(0, 4).map((action) => <button key={action.kind} onClick={() => openAction(action.kind)}><span>{action.icon}</span><small>{action.label.replace('+ ', '')}</small></button>)}</div>
+      {(data.workoutTemplates?.length ?? 0) > 0 && <section className="card home-templates"><div className="section-head compact"><div><p className="eyebrow">TEK DOKUNUŞLA BAŞLAT</p><h2>Kayıtlı şablonlar</h2></div><span>⚡</span></div><div className="home-templates__list">{data.workoutTemplates!.slice(0, 4).map((template) => <button type="button" key={template.id} onClick={() => startWorkoutTemplate(template)} aria-label={`${template.name} şablonunu başlat`}><span>{template.kind === 'gym' ? '🏋️' : '⚽'}</span><b>{template.name}</b><small>{template.minutes} dk · {template.exercises?.length ?? 0} hareket</small></button>)}</div>{(data.workoutTemplates?.length ?? 0) > 4 && <p className="field-help">İlk 4 şablon gösteriliyor; diğerleri seans penceresinde bulunur.</p>}</section>}
       <section className="card momentum"><div className="section-head compact"><div><p className="eyebrow">BU HAFTAKİ MOMENTUM</p><h2>{new Set(data.sessions.filter((session) => session.date >= weekStart && session.date <= weekEnd).map((session) => session.date)).size}/5 seans</h2></div><span>⚡</span></div><div className="week-row">{weekDays.map((day) => <div key={day.key} className="week-day"><span>{day.label}</span><i className={day.active ? 'done' : ''}>{day.active ? '✓' : '·'}</i></div>)}</div></section>
       <section className="card goals"><div className="section-head compact"><div><p className="eyebrow">BUGÜNÜN HEDEFLERİ</p><h2>{todayGoals.length}/{GOALS.length}</h2></div><span>🎯</span></div>{GOALS.map((goal) => <label key={goal.id} className="goal-row"><input type="checkbox" checked={todayGoals.includes(goal.id)} onChange={() => toggleGoal(goal.id)} /><span><b>{goal.title}</b><small>{goal.detail}</small></span></label>)}</section>
       <section className="card recent"><div className="section-head compact"><div><p className="eyebrow">SON KAYITLAR</p><h2>Gelişimin</h2></div><button className="text-button" onClick={() => setTab('calendar')}>Tümünü gör</button></div>{data.sessions.slice(0, 3).map((session) => <SessionRow key={session.id} session={session} />)}{!data.sessions.length && <p className="empty-copy">İlk antrenmanını kaydet, gelişimin burada görünsün.</p>}</section>
@@ -496,7 +529,7 @@ export default function App() {
   );
 
   const renderCalendar = () => (
-    <><header className="topbar"><div><p className="eyebrow">TAKVİM</p><h1>Antrenman günlüğü</h1></div><span className="streak">🔥 {streak} gün</span></header><WeeklyPlanner items={data.weeklyPlan ?? []} onAdd={addPlanItem} onDelete={deletePlanItem} onStart={startPlanItem} /><section className="card momentum"><p className="eyebrow">BU HAFTA</p><h2>{weekDays.filter((day) => day.active).length} aktif gün</h2><div className="week-row">{weekDays.map((day) => <div key={day.key} className="week-day"><span>{day.label}</span><i className={day.active ? 'done' : ''}>{day.active ? '✓' : '·'}</i></div>)}</div></section><section className="card recent"><div className="section-head compact"><div><p className="eyebrow">KAYIT ARŞİVİ</p><h2>{data.sessions.length} çalışma</h2></div><button className="text-button" onClick={() => setSheetOpen(true)}>+ Ekle</button></div>{data.sessions.length ? data.sessions.map((session) => <SessionRow key={session.id} session={session} />) : <p className="empty-copy">Henüz kayıt yok. İlk çalışmanı ekle.</p>}</section></>
+    <><header className="topbar"><div><p className="eyebrow">TAKVİM</p><h1>Antrenman günlüğü</h1></div><div className="calendar-header-actions"><button className="secondary-button" type="button" onClick={exportUpcomingCalendar}>Takvime aktar · .ics</button><span className="streak">🔥 {streak} gün</span></div></header><WeeklyPlanner items={data.weeklyPlan ?? []} onAdd={addPlanItem} onDelete={deletePlanItem} onStart={startPlanItem} /><section className="card momentum"><p className="eyebrow">BU HAFTA</p><h2>{weekDays.filter((day) => day.active).length} aktif gün</h2><div className="week-row">{weekDays.map((day) => <div key={day.key} className="week-day"><span>{day.label}</span><i className={day.active ? 'done' : ''}>{day.active ? '✓' : '·'}</i></div>)}</div></section><section className="card recent"><div className="section-head compact"><div><p className="eyebrow">KAYIT ARŞİVİ</p><h2>{data.sessions.length} çalışma</h2></div><button className="text-button" onClick={() => setSheetOpen(true)}>+ Ekle</button></div>{data.sessions.length ? data.sessions.map((session) => <SessionRow key={session.id} session={session} />) : <p className="empty-copy">Henüz kayıt yok. İlk çalışmanı ekle.</p>}</section></>
   );
 
   const renderStats = () => (
@@ -513,7 +546,7 @@ export default function App() {
       : statsView === 'muscles' ? (
         <MuscleAnalysis sessions={data.sessions} weekStart={weekStart} onAddGym={() => openAction('gym')} />
       ) : statsView === 'tests' ? (
-        <PerformanceTests records={data.skillTests ?? []} onSave={saveSkillTest} />
+        <PerformanceTests records={data.skillTests ?? []} targets={data.skillTestTargets ?? {}} onSave={saveSkillTest} onTargetChange={saveSkillTestTarget} />
       ) : statsView === 'drills' ? (
         <DrillLibrary onUse={startDrill} customDrills={data.customDrills ?? []} onSaveCustom={saveCustomDrill} onDeleteCustom={deleteCustomDrill} />
       ) : statsView === 'exercises' ? (
@@ -543,6 +576,15 @@ export default function App() {
       else setToast(permission === 'denied' ? 'İzin tarayıcı ayarlarından reddedildi.' : 'Bildirim izni verilmedi.');
     } catch { setToast('Bildirim izni bu sayfada kullanılamıyor. HTTPS bağlantısını dene.'); }
   };
+  const testLocalNotification = async () => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') { setToast('Önce sistem bildirim iznini ver.'); return; }
+    try {
+      const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
+      if (registration) await registration.showNotification('HBK Spor · deneme bildirimi', { body: 'Yerel bildirim iznin hazır. Bu, kapalı uygulama push bağlantısını test etmez.', icon: '/icon-192.png', tag: 'hbk-notification-test' });
+      else new Notification('HBK Spor · deneme bildirimi', { body: 'Yerel bildirim iznin hazır. Bu, kapalı uygulama push bağlantısını test etmez.', tag: 'hbk-notification-test' });
+      setToast('Deneme bildirimi gönderildi.');
+    } catch { setToast('Deneme bildirimi gösterilemedi; tarayıcı bildirim ayarlarını kontrol et.'); }
+  };
   const notificationPermission: NotificationPermission | 'unsupported' = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
   const pushState: 'unconfigured' | 'off' | 'on' = !isPushBackendConfigured() ? 'unconfigured' : pushEnabled ? 'on' : 'off';
   const enablePushNotifications = async () => {
@@ -558,8 +600,96 @@ export default function App() {
     finally { setPushEnabled(false); }
   };
 
+  const exportFullBackup = () => {
+    try {
+      exportJson(data);
+      setLastBackupAt(getLastBackupExportAt());
+      setToast('JSON kayıt yedeği hazırlandı. Ses ve maç medya dosyaları ayrı depoda kalıyor.');
+    } catch { setToast('JSON yedeği oluşturulamadı; tarayıcı indirme ayarlarını kontrol et.'); }
+  };
+
+  const exportMediaBackup = async () => {
+    setMediaBackupBusy(true);
+    try {
+      const archive = await exportLocalMediaBackup();
+      const url = URL.createObjectURL(archive);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `hbk-spor-medya-${localDateKey()}.hbm`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setToast('Medya yedeği indirildi. Dosya şifreli değildir; güvenli yerde sakla.');
+    } catch (reason) { setToast(reason instanceof Error ? reason.message : 'Medya yedeği oluşturulamadı.'); }
+    finally { setMediaBackupBusy(false); }
+  };
+
+  const readMediaBackupFile = async (file?: File) => {
+    mediaRestoreFile.current = null;
+    setMediaRestorePreview(null);
+    if (!file) return;
+    try {
+      if (file.size > MAX_MEDIA_ARCHIVE_FILE_BYTES) throw new Error('Medya yedeği 150 MB sınırını aşıyor.');
+      const backup = await inspectMediaBackup(await file.arrayBuffer());
+      mediaRestoreFile.current = file;
+      setMediaRestorePreview({ fileName: file.name, voiceNotes: backup.voiceNotes, matchMedia: backup.matchMedia, byteLength: backup.byteLength });
+      setToast('Medya yedeği doğrulandı; içe aktarmadan önce dosya sayısını incele.');
+    } catch (reason) { setToast(reason instanceof Error ? reason.message : 'Medya yedeği okunamadı.'); }
+    finally { if (mediaRestoreInput.current) mediaRestoreInput.current.value = ''; }
+  };
+
+  const applyMediaBackup = async () => {
+    const file = mediaRestoreFile.current;
+    if (!file || !mediaRestorePreview || mediaBackupBusy) return;
+    const ok = window.confirm(`Yedekteki ${mediaRestorePreview.voiceNotes} ses notu ve ${mediaRestorePreview.matchMedia} maç medya dosyası bu cihaza eklenecek. Aynı kimliğe sahip mevcut dosyalar yenilenecek; diğer dosyalar korunacak. Devam edilsin mi?`);
+    if (!ok) return;
+    setMediaBackupBusy(true);
+    try {
+      const result = await restoreLocalMediaBackup(await file.arrayBuffer());
+      setMediaRestorePreview(null);
+      mediaRestoreFile.current = null;
+      setToast(`${result.voiceNotes} ses notu ve ${result.matchMedia} maç medya dosyası geri yüklendi.`);
+    } catch (reason) { setToast(reason instanceof Error ? reason.message : 'Medya yedeği geri yüklenemedi.'); }
+    finally { setMediaBackupBusy(false); }
+  };
+
+  const readBackupFile = async (file?: File) => {
+    if (!file) return;
+    try {
+      if (file.size > 20_000_000) throw new Error('Yedek dosyası 20 MB sınırını aşıyor.');
+      const backup = validateAppBackup(await file.text());
+      setRestorePreview({ fileName: file.name, backup });
+      setToast('Yedek doğrulandı. Önizlemeyi inceleyip birleştirme veya değiştirme seç.');
+    } catch (reason) {
+      setRestorePreview(null);
+      setToast(reason instanceof Error ? reason.message : 'Yedek dosyası okunamadı.');
+    } finally {
+      if (restoreInput.current) restoreInput.current.value = '';
+    }
+  };
+
+  const applyBackup = (mode: 'merge' | 'replace') => {
+    if (!restorePreview) return;
+    const action = mode === 'merge' ? 'Yedekteki kayıtlar mevcut kayıtlarla birleştirilecek' : 'Bu cihazdaki uygulama kayıtları yedekteki kayıtlarla değiştirilecek';
+    const detail = 'Ses notları ve maç fotoğraf/video dosyaları yedek dosyasında bulunmaz ve değiştirilmeyecek.';
+    if (!window.confirm(`${action}. ${detail} Devam edilsin mi?`)) return;
+    const restored = mode === 'merge' ? mergeAppData(data, restorePreview.backup.data) : restorePreview.backup.data;
+    if (!persistAppData(restored)) {
+      setToast('Tarayıcı depolama alanına yazılamadı; mevcut veriler değiştirilmedi. Depolama alanını kontrol edip yeniden dene.');
+      return;
+    }
+    setData(restored);
+    setRestorePreview(null);
+    setToast(mode === 'merge' ? 'Doğrulanmış yedek mevcut kayıtlarla birleştirildi.' : 'Doğrulanmış yedek bu cihazdaki kayıtların yerine yüklendi.');
+  };
+
+  const exportUpcomingCalendar = () => {
+    const upcoming = (data.weeklyPlan ?? []).filter((item) => item.date >= today);
+    if (!downloadPlanCalendar(upcoming)) { setToast('Takvime aktarılacak geçerli gelecek plan kaydı yok.'); return; }
+    setToast(`${upcoming.length} plan kaydı takvim dosyası olarak indirildi.`);
+  };
+
   const renderSettings = () => (
-    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><PlayerCardEditor profile={data.profile!} appearance={data.playerCard} stats={{ sessions: data.sessions.length, xp: totalXp, level }} onSave={saveCardAppearance} /><NotificationSettings preferences={data.notificationPreferences ?? DEFAULT_NOTIFICATION_PREFERENCES} permission={notificationPermission} onEnable={enableNotifications} onUpdate={(notificationPreferences) => setData((current) => ({ ...current, notificationPreferences }))} pushState={pushState} pushError={pushError} onEnablePush={enablePushNotifications} onDisablePush={disablePushNotifications} /><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>Yedekle ve dışa aktar</h2><p className="empty-copy">Kayıtların yalnızca bu cihazda saklanır. İstediğinde JSON veya CSV yedeği alabilirsin.</p><p className="field-help">Sesli notlar ve maç albümü bu cihazdaki ayrı yerel depoda kalır; JSON / CSV dosyasına eklenmez.</p><div className="settings-actions"><button className="primary-button" onClick={() => exportJson(data)}>JSON yedeği al</button><button className="secondary-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></div></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.2.0</p></>
+    <><header className="topbar"><div><p className="eyebrow">HESAP & VERİ</p><h1>Ayarlar</h1></div><span className="avatar">{data.profile?.name.slice(0, 1).toUpperCase()}</span></header><section className="card settings-card"><p className="eyebrow">PROFİL</p><h2>{data.profile?.name}</h2><p className="empty-copy">{data.profile?.position} · Baskın ayak {data.profile?.dominantFoot}</p><button className="secondary-button" onClick={() => { setProfileName(data.profile?.name ?? ''); setTab('home'); setToast('Profil düzenleme yakında.'); }}>Profili düzenle</button></section><PlayerCardEditor profile={data.profile!} appearance={data.playerCard} stats={{ sessions: data.sessions.length, xp: totalXp, level }} onSave={saveCardAppearance} /><NotificationSettings preferences={data.notificationPreferences ?? DEFAULT_NOTIFICATION_PREFERENCES} permission={notificationPermission} onEnable={enableNotifications} onTestNotification={() => void testLocalNotification()} onUpdate={(notificationPreferences) => setData((current) => ({ ...current, notificationPreferences }))} pushState={pushState} pushError={pushError} onEnablePush={enablePushNotifications} onDisablePush={disablePushNotifications} /><BackupHealthCard lastBackupAt={lastBackupAt} data={data} onExport={exportFullBackup} /><section className="card settings-card backup-restore"><p className="eyebrow">YEDEKTEN GERİ YÜKLE</p><h2>JSON yedeğini denetle</h2><p className="empty-copy">Önce kayıtları ve geçersiz satırları gör; sonra mevcut verilerle birleştir veya kayıtları yedekle değiştir. Yazma başarısız olursa mevcut veriler tutulur.</p><p className="field-help">Eski düz JSON yedekleri de desteklenir. Sesli not ve maç medya dosyaları ayrı medya yedeğiyle taşınır; JSON geri yükleme bunları değiştirmez.</p><button className="secondary-button full-button" type="button" onClick={() => restoreInput.current?.click()}>JSON yedeği seç ve doğrula</button><input ref={restoreInput} type="file" accept="application/json,.json" hidden onChange={(event) => void readBackupFile(event.target.files?.[0])} />{restorePreview && <div className="backup-preview" aria-live="polite"><div><b>Önizleme · {restorePreview.fileName}</b><small>{restorePreview.backup.schemaVersion === 'legacy' ? 'Eski JSON biçimi' : `Yedek sürümü ${restorePreview.backup.schemaVersion}`}{restorePreview.backup.exportedAt ? ` · ${shortDate(restorePreview.backup.exportedAt.slice(0, 10))} oluşturuldu` : ''}</small></div><div className="backup-preview__counts">{Object.entries(restorePreview.backup.counts).map(([key, count]) => <span key={key}><b>{count.valid}</b>/{count.total} {key}{count.rejected ? ` · ${count.rejected} atlandı` : ''}</span>)}</div>{restorePreview.backup.invalidFields.length > 0 && <p className="backup-health__warning">Bazı alanlar biçim kontrolünden geçmedi; sorunlu kayıtlar içe alınmayacak. {restorePreview.backup.invalidFields.join(', ')}</p>}<p className="field-help">Profil fotoğrafı varsa JSON içindedir. Ses notları ile maç fotoğraf/video dosyaları bu JSON’a eklenmez; bunları ayrı medya yedeğiyle taşı.</p><div className="backup-preview__actions"><button className="secondary-button" type="button" onClick={() => applyBackup('merge')}>Mevcut verilerle birleştir</button><button className="primary-button" type="button" onClick={() => applyBackup('replace')}>Yedekle değiştir</button><button className="text-button" type="button" onClick={() => setRestorePreview(null)}>İptal</button></div></div>}</section><section className="card settings-card media-backup"><p className="eyebrow">AYRI MEDYA YEDEĞİ</p><h2>Ses ve maç dosyalarını taşı</h2><p className="empty-copy">JSON yedeğinden ayrı olarak cihazdaki ses notlarını ve maç fotoğraf/video dosyalarını tek dosyada dışa aktar. İçe aktarma mevcut medyayı silmez; yalnızca aynı kimliğe sahip dosyaları günceller.</p><p className="field-help">Arşiv en fazla 150 MB’tır; her dosyanın SHA-256 özeti bozulmayı içe aktarmadan önce denetler. Arşiv şifrelenmez; dışa aktarılan dosyayı güvenli, özel bir yerde sakla. Medya yalnızca bu tarayıcının IndexedDB deposundan okunur.</p><div className="media-backup__actions"><button className="secondary-button" type="button" disabled={mediaBackupBusy} onClick={() => void exportMediaBackup()}>{mediaBackupBusy ? 'İşleniyor…' : 'Medya yedeğini indir'}</button><button className="secondary-button" type="button" disabled={mediaBackupBusy} onClick={() => mediaRestoreInput.current?.click()}>Medya yedeği seç</button><input ref={mediaRestoreInput} type="file" accept=".hbm,application/octet-stream" hidden onChange={(event) => void readMediaBackupFile(event.target.files?.[0])} /></div>{mediaRestorePreview && <div className="backup-preview" aria-live="polite"><b>Önizleme · {mediaRestorePreview.fileName}</b><p className="field-help">{mediaRestorePreview.voiceNotes} ses notu · {mediaRestorePreview.matchMedia} maç medya dosyası · {(mediaRestorePreview.byteLength / (1024 * 1024)).toFixed(1)} MB</p><div className="backup-preview__actions"><button className="primary-button" type="button" disabled={mediaBackupBusy} onClick={() => void applyMediaBackup()}>{mediaBackupBusy ? 'Geri yükleniyor…' : 'Medya dosyalarını geri yükle'}</button><button className="text-button" type="button" onClick={() => { mediaRestoreFile.current = null; setMediaRestorePreview(null); }}>İptal</button></div></div>}</section><section className="card settings-card"><p className="eyebrow">VERİLERİN SANA AİT</p><h2>CSV dışa aktar</h2><p className="empty-copy">Antrenman kayıtlarını tablo yazılımında incelemek için CSV indir.</p><button className="secondary-button full-button" onClick={() => exportSessionsCsv(data)}>Antrenman CSV indir</button></section><section className="card settings-card"><p className="eyebrow">GİZLİLİK</p><h2>Hesap gerekmez</h2><p className="empty-copy">Profilin ve antrenmanların bu tarayıcıda kalır; bir sunucuya gönderilmez.</p><button className="danger-button" onClick={resetProfile}>Profili ve verileri sil</button></section><p className="version-copy">HBK Spor · Kaynak yeniden oluşturma prototipi v0.2.0</p></>
   );
 
   if (!data.profile) {
@@ -767,19 +897,30 @@ function SessionRow({ session }: { session: TrainingSession }) {
   return <div className="session-row"><span className="session-icon">{icon[session.kind]}</span><span className="session-info"><b>{session.title}</b><small>{LABELS[session.kind]} · {shortDate(session.date)}{session.minutes ? ` · ${session.minutes} dk` : ''}{session.score ? ` · ${session.score}` : ''}{exerciseCount ? ` · ${exerciseCount} hareket` : ''}</small>{session.matchEvents?.length ? <ol className="session-event-timeline">{[...session.matchEvents].sort((a, b) => a.minute - b.minute).map((event) => <li key={event.id}><time>{event.minute}′</time><span>{MATCH_EVENT_LABELS[event.type]}{event.detail ? ` · ${event.detail}` : ''}</span></li>)}</ol> : null}{session.voiceNoteId && <VoiceNotePlayback id={session.voiceNoteId} />}{session.matchMediaIds?.length ? <MatchMediaGallery ids={session.matchMediaIds} /> : null}</span><span className="session-xp">+{session.xp} XP</span></div>;
 }
 
-function PerformanceTests({ records, onSave }: { records: SkillTestRecord[]; onSave: (record: Omit<SkillTestRecord, 'id' | 'date'>) => void }) {
+function PerformanceTests({ records, targets, onSave, onTargetChange }: { records: SkillTestRecord[]; targets: Record<string, number>; onSave: (record: Omit<SkillTestRecord, 'id' | 'date'>) => void; onTargetChange: (testId: string, target: number | null) => void }) {
   const [testId, setTestId] = useState<(typeof SKILL_TEST_TEMPLATES)[number]['id']>(SKILL_TEST_TEMPLATES[0].id);
   const [value, setValue] = useState('');
+  const [targetDraft, setTargetDraft] = useState('');
   const test = SKILL_TEST_TEMPLATES.find((item) => item.id === testId) ?? SKILL_TEST_TEMPLATES[0];
+  const target = targets[test.id];
+  useEffect(() => setTargetDraft(target === undefined ? '' : String(target)), [test.id, target]);
   const history = records.filter((record) => record.testId === test.id).sort((a, b) => a.date.localeCompare(b.date));
   const best = history.reduce<SkillTestRecord | null>((selected, record) => !selected || (test.lowerIsBetter ? record.value < selected.value : record.value > selected.value) ? record : selected, null);
+  const progress = target && best ? Math.min(100, test.lowerIsBetter ? target / best.value * 100 : best.value / target * 100) : 0;
+  const reached = Boolean(target && best && (test.lowerIsBetter ? best.value <= target : best.value >= target));
   const add = () => {
     const numericValue = Number(value);
     if (!Number.isFinite(numericValue) || numericValue <= 0 || numericValue > 100_000) return;
     onSave({ testId: test.id, name: test.name, category: test.category, unit: test.unit, lowerIsBetter: test.lowerIsBetter, value: numericValue });
     setValue('');
   };
-  return <div className="test-workspace"><section className="card"><div className="section-head compact"><div><p className="eyebrow">PERFORMANS TESTLERİ</p><h2>Sonuç ekle</h2></div><span>📈</span></div><p className="field-help">Aynı testin geçmişini kıyasla. Süre testlerinde düşük, mesafe/yükseklik testlerinde yüksek değer kişisel en iyi olarak gösterilir.</p><label className="field-label">Test şablonu<select value={testId} onChange={(event) => setTestId(event.target.value as typeof testId)}>{SKILL_TEST_TEMPLATES.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.category}</option>)}</select></label><label className="field-label">Sonuç ({test.unit})<input aria-label={`Sonuç (${test.unit})`} type="number" min="0.01" max="100000" step="any" value={value} onChange={(event) => setValue(event.target.value)} placeholder={test.unit === 'sn' ? 'Örn. 3.42' : 'Sonucu gir'} /></label><button className="primary-button full-button" type="button" onClick={add} disabled={!value || !Number.isFinite(Number(value)) || Number(value) <= 0}>Bugünkü sonucu kaydet</button></section><section className="card test-history"><div className="section-head compact"><div><p className="eyebrow">{test.category.toUpperCase()} · TREND</p><h2>{test.name}</h2></div><span>🎯</span></div><div className="test-best"><span>Kişisel en iyi</span><b>{best ? `${numberFormat(best.value, 2)} ${test.unit}` : '—'}</b><small>{best ? shortDate(best.date) : 'Henüz sonuç yok'}</small></div>{history.length ? <ol className="test-history-list">{[...history].reverse().slice(0, 12).map((record) => <li key={record.id}><time>{shortDate(record.date)}</time><b>{numberFormat(record.value, 2)} {record.unit}</b>{record.id === best?.id && <span>En iyi</span>}</li>)}</ol> : <p className="empty-copy">İlk test sonucunu eklediğinde geçmiş burada birikir.</p>}</section><p className="analysis-disclaimer">Bu kayıtlar yalnızca senin girdiğin sonuçları gösterir. Test koşulları ve ölçüm yöntemi değişebileceğinden, farklı protokollerdeki sonuçlar doğrudan kıyaslanmamalıdır.</p></div>;
+  const saveTarget = () => {
+    if (!targetDraft.trim()) { onTargetChange(test.id, null); return; }
+    const numericTarget = Number(targetDraft);
+    if (!Number.isFinite(numericTarget) || numericTarget <= 0 || numericTarget > 100_000) return;
+    onTargetChange(test.id, numericTarget);
+  };
+  return <div className="test-workspace"><section className="card"><div className="section-head compact"><div><p className="eyebrow">PERFORMANS TESTLERİ</p><h2>Sonuç ekle</h2></div><span>📈</span></div><p className="field-help">Aynı testin geçmişini kıyasla. Süre testlerinde düşük, mesafe/yükseklik testlerinde yüksek değer kişisel en iyi olarak gösterilir.</p><label className="field-label">Test şablonu<select value={testId} onChange={(event) => setTestId(event.target.value as typeof testId)}>{SKILL_TEST_TEMPLATES.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.category}</option>)}</select></label><label className="field-label">Sonuç ({test.unit})<input aria-label={`Sonuç (${test.unit})`} type="number" min="0.01" max="100000" step="any" value={value} onChange={(event) => setValue(event.target.value)} placeholder={test.unit === 'sn' ? 'Örn. 3.42' : 'Sonucu gir'} /></label><button className="primary-button full-button" type="button" onClick={add} disabled={!value || !Number.isFinite(Number(value)) || Number(value) <= 0}>Bugünkü sonucu kaydet</button></section><section className="card test-history"><div className="section-head compact"><div><p className="eyebrow">{test.category.toUpperCase()} · TREND</p><h2>{test.name}</h2></div><span>🎯</span></div><div className="test-best"><span>Kişisel en iyi</span><b>{best ? `${numberFormat(best.value, 2)} ${test.unit}` : '—'}</b><small>{best ? shortDate(best.date) : 'Henüz sonuç yok'}</small></div><div className="skill-target"><label className="field-label" htmlFor="skill-test-target">Kişisel hedef ({test.unit})</label><div className="skill-target__controls"><input id="skill-test-target" aria-label={`Kişisel hedef (${test.unit})`} type="number" min="0.01" max="100000" step="any" value={targetDraft} onChange={(event) => setTargetDraft(event.target.value)} placeholder={test.lowerIsBetter ? 'En fazla…' : 'En az…'} /><button type="button" className="secondary-button" onClick={saveTarget}>Hedefi kaydet</button>{target !== undefined && <button type="button" className="text-button" onClick={() => { setTargetDraft(''); onTargetChange(test.id, null); }}>Kaldır</button>}</div>{target !== undefined && <><div className="skill-target__track" role="meter" aria-label={`${test.name} hedef ilerlemesi`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}><span className={reached ? 'reached' : ''} style={{ width: `${progress}%` }} /></div><small className="skill-target__status">{best ? reached ? 'Hedefe ulaşıldı' : `En iyi ${numberFormat(best.value, 2)} / hedef ${numberFormat(target, 2)} ${test.unit}` : `Hedef: ${numberFormat(target, 2)} ${test.unit} · ilerlemeyi görmek için sonuç ekle`}</small></>}</div>{history.length ? <ol className="test-history-list">{[...history].reverse().slice(0, 12).map((record) => <li key={record.id}><time>{shortDate(record.date)}</time><b>{numberFormat(record.value, 2)} {record.unit}</b>{record.id === best?.id && <span>En iyi</span>}</li>)}</ol> : <p className="empty-copy">İlk test sonucunu eklediğinde geçmiş burada birikir.</p>}</section><p className="analysis-disclaimer">Bu kayıtlar yalnızca senin girdiğin sonuçları gösterir. Test koşulları ve ölçüm yöntemi değişebileceğinden, farklı protokollerdeki sonuçlar doğrudan kıyaslanmamalıdır.</p></div>;
 }
 
 function StatCard({ icon, value, label }: { icon: string; value: string; label: string }) {

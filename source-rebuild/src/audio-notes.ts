@@ -1,3 +1,5 @@
+import { createMediaBackup, parseMediaBackup, verifyMediaBackup, type MediaBackupSourceItem } from './media-backup';
+
 const DB_NAME = 'hbk_spor_media_v1';
 const STORE_NAME = 'voiceNotes';
 const MATCH_MEDIA_STORE = 'matchMedia';
@@ -106,4 +108,53 @@ export async function getVoiceNote(id: string): Promise<Blob | null> {
     transaction.oncomplete = () => database.close();
     transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error('Ses notu okunamadı.')); };
   });
+}
+
+export async function exportLocalMediaBackup(): Promise<Blob> {
+  const database = await openDatabase();
+  const sourceItems = await new Promise<MediaBackupSourceItem[]>((resolve, reject) => {
+    const transaction = database.transaction([STORE_NAME, MATCH_MEDIA_STORE], 'readonly');
+    const voiceStore = transaction.objectStore(STORE_NAME);
+    const matchStore = transaction.objectStore(MATCH_MEDIA_STORE);
+    const voiceKeys = voiceStore.getAllKeys();
+    const voiceValues = voiceStore.getAll();
+    const matchKeys = matchStore.getAllKeys();
+    const matchValues = matchStore.getAll();
+    let entries: MediaBackupSourceItem[] = [];
+    transaction.oncomplete = () => {
+      const append = (store: 'voiceNotes' | 'matchMedia', keys: IDBValidKey[], values: unknown[]) => {
+        keys.forEach((key, index) => {
+          const blob = values[index];
+          if (typeof key === 'string' && blob instanceof Blob) entries.push({ store, id: key, blob });
+        });
+      };
+      append('voiceNotes', voiceKeys.result, voiceValues.result);
+      append('matchMedia', matchKeys.result, matchValues.result);
+      resolve(entries);
+    };
+    transaction.onerror = () => reject(transaction.error ?? new Error('Cihazdaki medya listesi okunamadı.'));
+    transaction.onabort = () => reject(transaction.error ?? new Error('Cihazdaki medya listesi okunamadı.'));
+  }).finally(() => database.close());
+  return createMediaBackup(sourceItems);
+}
+
+export async function inspectMediaBackup(buffer: ArrayBuffer) {
+  return verifyMediaBackup(parseMediaBackup(buffer));
+}
+
+export async function restoreLocalMediaBackup(buffer: ArrayBuffer): Promise<{ voiceNotes: number; matchMedia: number; byteLength: number }> {
+  const backup = await verifyMediaBackup(parseMediaBackup(buffer));
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction([STORE_NAME, MATCH_MEDIA_STORE], 'readwrite');
+    for (const item of backup.items) {
+      const start = backup.payloadOffset + item.offset;
+      const blob = new Blob([backup.payload.slice(start, start + item.size)], { type: item.type });
+      transaction.objectStore(item.store === 'voiceNotes' ? STORE_NAME : MATCH_MEDIA_STORE).put(blob, item.id);
+    }
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error('Medya dosyaları geri yüklenemedi.'));
+    transaction.onabort = () => reject(transaction.error ?? new Error('Medya geri yüklemesi iptal edildi; yerel kayıtlar korunmalı.'));
+  }).finally(() => database.close());
+  return { voiceNotes: backup.voiceNotes, matchMedia: backup.matchMedia, byteLength: backup.byteLength };
 }
